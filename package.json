@@ -1,0 +1,34 @@
+{
+  "name": "moja-aplikacja-fullstack",
+  "version": "1.0.0",
+  "description": "Aplikacja fullstack z backendem w Node.js i frontendem w Vite",
+  "scripts": {
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "start": "node backend/src/app.js",
+    "build": "npm run frontend:build",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:build": "cd frontend && npm run build",
+    "frontend:preview": "cd frontend && npm run preview",
+    "backend:dev": "nodemon backend/src/app.js",
+    "backend:start": "cd backend && npm start",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "test": "echo \"Uruchom testy osobno: npm run test:frontend lub npm run test:backend\"",
+    "test:frontend": "cd frontend && npm run test",
+    "test:backend": "cd backend && npm run test"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "concurrently": "^8.2.0"
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "vite",
+    "fullstack"
+  ],
+  "author": "Twój Nick",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
