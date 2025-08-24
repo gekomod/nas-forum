@@ -328,20 +328,27 @@ export default {
     },
     async deleteThread(threadId) {
       try {
-        await this.$confirm('Czy na pewno chcesz usunąć ten temat?', 'Potwierdzenie', {
-          confirmButtonText: 'Tak',
-          cancelButtonText: 'Nie',
-          type: 'warning'
-        });
-        
         await axios.delete(`/admin/threads/${threadId}`);
-        this.$message.success('Temat został usunięty');
-        this.loadThreads();
+        this.$message.success('Temat i wszystkie posty zostały usunięte');
+        await this.loadThreads();
       } catch (error) {
-        if (error !== 'cancel') {
-          this.$message.error('Błąd podczas usuwania tematu');
-        }
+        console.error('Error deleting thread:', error);
+        this.$message.error(error.response?.data?.error || 'Błąd podczas usuwania tematu');
       }
+    },
+    confirmDeleteThread(thread) {
+      this.$confirm(
+        `Czy na pewno chcesz usunąć temat "${thread.title}"? WSZYSTKIE ODPOWIEDZI ZOSTANĄ USUNIĘTE!`,
+        'Potwierdzenie usunięcia',
+        {
+          confirmButtonText: 'Tak, usuń',
+          cancelButtonText: 'Anuluj',
+          type: 'warning',
+          icon: 'el-icon-warning-outline'
+        }
+      ).then(() => {
+        this.deleteThread(thread.id);
+      }).catch(() => {});
     },
     editThread(thread) {
       this.editingThread = thread;

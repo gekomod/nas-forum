@@ -306,7 +306,7 @@ app.delete('/api/thread/:id', authenticateToken, (req, res) => {
 
   // Sprawdź czy użytkownik może usunąć wątek
   db.get(
-    `SELECT t.user_id, t.replies, r.permissions 
+    `SELECT t.user_id, t.replies, t.category_id, r.permissions 
      FROM threads t 
      JOIN users u ON t.user_id = u.id 
      JOIN roles r ON u.role_id = r.id 
@@ -329,12 +329,26 @@ app.delete('/api/thread/:id', authenticateToken, (req, res) => {
       const hasNoReplies = thread.replies === 0;
 
       if ((canDeleteAny || (canDeleteOwn && hasNoReplies))) {
-        db.run('DELETE FROM threads WHERE id = ?', [threadId], function(err) {
+        // Najpierw usuń wszystkie posty w wątku
+        db.run('DELETE FROM posts WHERE thread_id = ?', [threadId], (err) => {
           if (err) {
             return res.status(500).json({ error: err.message });
           }
           
-          res.json({ message: 'Wątek został usunięty' });
+          // Następnie usuń wątek
+          db.run('DELETE FROM threads WHERE id = ?', [threadId], function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            // Aktualizuj statystyki kategorii
+            db.run(
+              'UPDATE categories SET threads = threads - 1, posts = posts - ? WHERE id = ?',
+              [thread.replies + 1, thread.category_id] // +1 bo pierwszy post to wątek
+            );
+            
+            res.json({ message: 'Wątek został usunięty' });
+          });
         });
       } else {
         res.status(403).json({ error: 'Brak uprawnień do usunięcia wątku' });
@@ -342,7 +356,6 @@ app.delete('/api/thread/:id', authenticateToken, (req, res) => {
     }
   );
 });
-
 
 // Routes
 app.get('/api/categories', (req, res) => {
@@ -409,7 +422,8 @@ app.get('/api/thread/:id', (req, res) => {
 	  FROM posts p 
 	  LEFT JOIN users u ON p.author = u.username
 	  WHERE p.thread_id = ? 
-	  ORDER BY p.date ASC`;
+	  ORDER BY p.date ASC
+	`;
   
   // Pobierz wątek
   db.get(threadQuery, [threadId], (err, thread) => {
@@ -1079,10 +1093,10 @@ app.put('/api/admin/threads/:id/sticky', authenticateToken, requirePermission('m
   );
 });
 
-// Edytuj temat (tytuł, kategoria)
+// Edycja wątku przez administratora/moderatora
 app.put('/api/admin/threads/:id', authenticateToken, requirePermission('manage_threads'), (req, res) => {
   const threadId = req.params.id;
-  const { title, category_id, is_closed, is_sticky } = req.body;
+  const { title, content, category_id, is_closed, is_sticky } = req.body;
 
   db.run(
     'UPDATE threads SET title = ?, category_id = ?, is_closed = ?, is_sticky = ? WHERE id = ?',
@@ -1093,15 +1107,30 @@ app.put('/api/admin/threads/:id', authenticateToken, requirePermission('manage_t
       }
       
       if (this.changes === 0) {
-        return res.status(404).json({ error: 'Temat nie istnieje' });
+        return res.status(404).json({ error: 'Wątek nie istnieje' });
       }
       
-      res.json({ message: 'Temat zaktualizowany' });
+      // Jeśli podano content, zaktualizuj pierwszy post
+      if (content) {
+        db.run(
+          'UPDATE posts SET content = ?, edited_at = CURRENT_TIMESTAMP WHERE thread_id = ? AND id = (SELECT MIN(id) FROM posts WHERE thread_id = ?)',
+          [content, threadId, threadId],
+          function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            res.json({ message: 'Wątek został zaktualizowany' });
+          }
+        );
+      } else {
+        res.json({ message: 'Wątek został zaktualizowany' });
+      }
     }
   );
 });
 
-// Usuń temat (dla adminów/moderatorów)
+// Usuwanie wątku (tylko dla adminów/moderatorów)
 app.delete('/api/admin/threads/:id', authenticateToken, requirePermission('manage_threads'), (req, res) => {
   const threadId = req.params.id;
 
@@ -1111,17 +1140,32 @@ app.delete('/api/admin/threads/:id', authenticateToken, requirePermission('manag
       return res.status(500).json({ error: err.message });
     }
     
-    // Następnie usuń wątek
-    db.run('DELETE FROM threads WHERE id = ?', [threadId], function(err) {
+    // Pobierz informacje o wątku do aktualizacji statystyk kategorii
+    db.get('SELECT category_id, replies FROM threads WHERE id = ?', [threadId], (err, threadInfo) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
       
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Temat nie istnieje' });
-      }
-      
-      res.json({ message: 'Temat i wszystkie posty zostały usunięte' });
+      // Następnie usuń wątek
+      db.run('DELETE FROM threads WHERE id = ?', [threadId], function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        if (this.changes === 0) {
+          return res.status(404).json({ error: 'Temat nie istnieje' });
+        }
+        
+        // Aktualizuj statystyki kategorii
+        if (threadInfo) {
+          db.run(
+            'UPDATE categories SET threads = threads - 1, posts = posts - ? WHERE id = ?',
+            [threadInfo.replies + 1, threadInfo.category_id] // +1 bo pierwszy post to wątek
+          );
+        }
+        
+        res.json({ message: 'Temat i wszystkie posty zostały usunięte' });
+      });
     });
   });
 });
@@ -1200,6 +1244,188 @@ app.delete('/api/admin/posts/:id', authenticateToken, requirePermission('manage_
     });
   });
 });
+
+// Usuwanie posta przez użytkownika (własne posty)
+app.delete('/api/post/:id', authenticateToken, (req, res) => {
+  const postId = req.params.id;
+
+  // Sprawdź czy użytkownik jest właścicielem posta
+  db.get('SELECT user_id, thread_id FROM posts WHERE id = ?', [postId], (err, post) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!post) {
+      return res.status(404).json({ error: 'Post nie istnieje' });
+    }
+
+    if (post.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Możesz usuwać tylko swoje posty' });
+    }
+
+    // Sprawdź czy wątek nie jest zamknięty
+    db.get('SELECT is_closed FROM threads WHERE id = ?', [post.thread_id], (err, thread) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (thread && thread.is_closed) {
+        return res.status(403).json({ error: 'Nie możesz usuwać postów w zamkniętych wątkach' });
+      }
+
+      // Usuń post i zaktualizuj statystyki
+      db.run('DELETE FROM posts WHERE id = ?', [postId], function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        // Aktualizuj licznik odpowiedzi
+        db.run('UPDATE threads SET replies = replies - 1 WHERE id = ?', [post.thread_id]);
+        
+        // Aktualizuj kategorię
+        db.get('SELECT category_id FROM threads WHERE id = ?', [post.thread_id], (err, threadInfo) => {
+          if (!err && threadInfo) {
+            db.run('UPDATE categories SET posts = posts - 1 WHERE id = ?', [threadInfo.category_id]);
+          }
+        });
+        
+        res.json({ message: 'Post został usunięty' });
+      });
+    });
+  });
+});
+
+// Edycja posta
+app.put('/api/post/:id', authenticateToken, (req, res) => {
+  const postId = req.params.id;
+  const { content } = req.body;
+
+  // Sprawdź czy post istnieje i czy użytkownik jest właścicielem
+  db.get('SELECT * FROM posts WHERE id = ?', [postId], (err, post) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!post) {
+      return res.status(404).json({ error: 'Post nie istnieje' });
+    }
+
+    // Sprawdź uprawnienia
+    if (post.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Możesz edytować tylko swoje posty' });
+    }
+
+    // Sprawdź czy wątek nie jest zamknięty
+    db.get('SELECT is_closed FROM threads WHERE id = ?', [post.thread_id], (err, thread) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (thread && thread.is_closed) {
+        return res.status(403).json({ error: 'Nie możesz edytować postów w zamkniętych wątkach' });
+      }
+
+      // Aktualizuj post
+      db.run(
+        'UPDATE posts SET content = ?, edited_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [content, postId],
+        function(err) {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          res.json({ message: 'Post został zaktualizowany' });
+        }
+      );
+    });
+  });
+});
+
+// Edycja posta przez administratora/moderatora
+app.put('/api/admin/posts/:id', authenticateToken, requirePermission('manage_posts'), (req, res) => {
+  const postId = req.params.id;
+  const { content } = req.body;
+
+  db.run(
+    'UPDATE posts SET content = ?, edited_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [content, postId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Post nie istnieje' });
+      }
+      
+      res.json({ message: 'Post został zaktualizowany' });
+    }
+  );
+});
+
+// Edycja wątku
+app.put('/api/thread/:id', authenticateToken, (req, res) => {
+  const threadId = req.params.id;
+  const { title, content } = req.body;
+
+  // Sprawdź czy wątek istnieje i czy użytkownik jest właścicielem
+  db.get('SELECT * FROM threads WHERE id = ?', [threadId], (err, thread) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!thread) {
+      return res.status(404).json({ error: 'Wątek nie istnieje' });
+    }
+
+    // Sprawdź uprawnienia
+    if (thread.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Możesz edytować tylko swoje wątki' });
+    }
+
+    // Sprawdź czy kategoria nie jest zablokowana
+    db.get('SELECT is_locked FROM categories WHERE id = ?', [thread.category_id], (err, category) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (category && category.is_locked) {
+        return res.status(403).json({ error: 'Nie możesz edytować wątków w zablokowanych kategoriach' });
+      }
+
+      // Sprawdź czy wątek nie jest zamknięty
+      if (thread.is_closed) {
+        return res.status(403).json({ error: 'Nie możesz edytować zamkniętych wątków' });
+      }
+
+      // Aktualizuj wątek
+      db.run(
+        'UPDATE threads SET title = ? WHERE id = ?',
+        [title, threadId],
+        function(err) {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          // Aktualizuj pierwszy post (zawartość wątku)
+          db.run(
+            'UPDATE posts SET content = ?, edited_at = CURRENT_TIMESTAMP WHERE thread_id = ? AND id = (SELECT MIN(id) FROM posts WHERE thread_id = ?)',
+            [content, threadId, threadId],
+            function(err) {
+              if (err) {
+                return res.status(500).json({ error: err.message });
+              }
+              
+              res.json({ message: 'Wątek został zaktualizowany' });
+            }
+          );
+        }
+      );
+    });
+  });
+});
+
+
 
 // Globalny obiekt do śledzenia aktywności
 const activeUsers = new Map();

@@ -108,7 +108,12 @@
           </div>
           
           <div class="post-footer">
-            <div class="post-date">{{ formatDateTime(post.date) }}</div>
+                <div class="post-date">
+		  {{ formatDateTime(post.date) }}
+		 <span v-if="post.edited_at" class="edited-info">
+	          (edytowano {{ formatRelativeTime(post.edited_at) }})
+		 </span>
+		</div>
             <div class="post-actions" v-if="user">
               <button class="action-btn" @click="quotePost(post)" :disabled="thread.is_closed">
                 <Icon icon="mdi:format-quote-close" />
@@ -382,7 +387,10 @@ export default {
       
       post.saving = true;
       try {
-        await axios.put(`/post/${post.id}`, {
+        // Użyj odpowiedniego endpointu w zależności od uprawnień
+        const endpoint = this.isModerator ? `/admin/posts/${post.id}` : `/post/${post.id}`;
+        
+        await axios.put(endpoint, {
           content: post.editContent
         });
         
@@ -414,12 +422,14 @@ export default {
     // Usuń post
     async deletePost(post) {
       try {
-        await axios.delete(`/post/${post.id}`);
-        this.$message.success('Post został usunięty');
+        const endpoint = this.isModerator ? `/admin/posts/${post.id}` : `/post/${post.id}`;
+        await axios.delete(endpoint);
+        
+        this.$message.success('Odpowiedź została usunięta');
         await this.loadThread(); // Odśwież wątek
       } catch (error) {
         console.error('Error deleting post:', error);
-        this.$message.error(error.response?.data?.error || 'Błąd podczas usuwania posta');
+        this.$message.error(error.response?.data?.error || 'Błąd podczas usuwania odpowiedzi');
       }
     },
   formatDaysAgo(dateString) {
@@ -849,6 +859,12 @@ export default {
 .user-detail .iconify {
   font-size: 9px;
   opacity: 0.7;
+}
+
+.edited-info {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
 }
 
 /* Dla ciemnego motywu */

@@ -148,7 +148,7 @@
                       </el-dropdown-item>
                       <el-dropdown-item 
                         v-if="user.role_id === 1 || user.role_id === 2"
-                        @click="confirmDeleteThread(thread.id)">
+                        @click="confirmDeleteThread(thread.id, true)">
                         <Icon icon="mdi:delete" /> Usuń (moderator)
                       </el-dropdown-item>
                       <el-dropdown-item 
@@ -263,7 +263,7 @@
                       </el-dropdown-item>
                       <el-dropdown-item 
                         v-if="user.role_id === 1 || user.role_id === 2"
-                        @click="confirmDeleteThread(thread.id)">
+                        @click="confirmDeleteThread(thread.id, true)">
                         <Icon icon="mdi:delete" /> Usuń (moderator)
                       </el-dropdown-item>
                       <el-dropdown-item 
@@ -323,6 +323,7 @@
 
 <script>
 import { Icon } from "@iconify/vue";
+import axios from 'axios'
 
 export default {
   name: 'CategoryPage',
@@ -403,14 +404,43 @@ export default {
         console.error('CategoryPage - BŁĄD podczas emitowania:', error);
       }
     },
-    confirmDeleteThread(threadId) {
-      this.$confirm('Czy na pewno chcesz usunąć ten wątek?', 'Potwierdzenie', {
+    confirmDeleteThread(threadId, isModerator = false) {
+      const message = isModerator 
+        ? 'Czy na pewno chcesz usunąć ten wątek? WSZYSTKIE ODPOWIEDZI ZOSTANĄ USUNIĘTE!'
+        : 'Czy na pewno chcesz usunąć ten wątek?';
+      
+      this.$confirm(message, 'Potwierdzenie', {
         confirmButtonText: 'Tak',
         cancelButtonText: 'Anuluj',
-        type: 'warning'
+        type: 'warning',
+        icon: 'el-icon-warning-outline'
       }).then(() => {
-        this.$emit('delete-thread', threadId);
+        this.deleteThread(threadId, isModerator);
       }).catch(() => {});
+    },
+    async deleteThread(threadId, isModerator = false) {
+      try {
+        const endpoint = isModerator ? `/admin/threads/${threadId}` : `/thread/${threadId}`;
+        await axios.delete(endpoint);
+        
+        this.$message.success('Wątek i wszystkie odpowiedzi zostały usunięte');
+        this.loadCategoryThreads(this.selectedCategory.id);
+      } catch (error) {
+        console.error('Error deleting thread:', error);
+        this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas usuwania wątku');
+      }
+    },
+    async editThread(threadId, newData) {
+      try {
+        const endpoint = this.isModerator ? `/admin/threads/${threadId}` : `/thread/${threadId}`;
+        
+        await axios.put(endpoint, newData);
+        this.$message.success('Wątek został zaktualizowany');
+        await this.loadCategoryThreads(this.selectedCategory.id);
+      } catch (error) {
+        console.error('Error updating thread:', error);
+        this.$message.error(error.response?.data?.error || 'Błąd podczas aktualizacji wątku');
+      }
     },
     formatDate(dateString) {
       if (!dateString) return 'Brak daty';
