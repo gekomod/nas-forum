@@ -37,6 +37,14 @@
 	    <Icon icon="mdi:shape-outline" />
 	    Zarządzanie kategoriami
 	  </el-menu-item>
+          <el-menu-item index="threads-management" v-if="isAdminOrModerator">
+            <Icon icon="mdi:forum-outline" />
+            Zarządzanie tematami
+          </el-menu-item>
+          <el-menu-item index="posts-management" v-if="isAdminOrModerator">
+            <Icon icon="mdi:message-text" />
+            Zarządzanie postami
+          </el-menu-item>
         </el-menu>
       </div>
 
@@ -77,6 +85,8 @@
 
         <UsersManagement v-if="currentView === 'users' && isAdmin" />
         <CategoryManagement v-if="currentView === 'categories-management' && isAdmin" />
+        <ThreadsManagement v-if="currentView === 'threads-management' && isAdminOrModerator" />
+        <PostsManagement v-if="currentView === 'posts-management' && isAdminOrModerator" />
       </div>
     </div>
 
@@ -129,6 +139,8 @@ import ManageCategoryModal from './components/ManageCategoryModal.vue'
 import CategoryManagement from './components/CategoryManagement.vue'
 import ThreadPage from './components/ThreadPage.vue'
 import CreateThreadModal from './components/CreateThreadModal.vue'
+import ThreadsManagement from './components/ThreadsManagement.vue' 
+import PostsManagement from './components/PostsManagement.vue';
 import { Icon } from "@iconify/vue";
 import axios from 'axios'
 
@@ -147,6 +159,8 @@ export default {
     CategoryManagement,
     ThreadPage,
     CreateThreadModal,
+    ThreadsManagement,
+    PostsManagement,
     Icon
   },
   data() {
@@ -188,6 +202,9 @@ export default {
     },
     isUser() {
       return this.currentUser && this.currentUser.role_id === 3;
+    },
+    isAdminOrModerator() {
+      return this.isAdmin || this.isModerator;
     }
   },
   methods: {

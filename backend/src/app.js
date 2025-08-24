@@ -916,6 +916,197 @@ app.post('/api/update-activity', authenticateToken, (req, res) => {
   );
 });
 
+// Pobierz wszystkie tematy do zarządzania (dla adminów i moderatorów)
+app.get('/api/admin/threads', authenticateToken, requirePermission('manage_threads'), (req, res) => {
+  const query = `
+    SELECT 
+      t.*,
+      c.name as category_name,
+      u.username as author_name,
+      COUNT(p.id) as post_count
+    FROM threads t
+    JOIN categories c ON t.category_id = c.id
+    JOIN users u ON t.user_id = u.id
+    LEFT JOIN posts p ON t.id = p.thread_id
+    GROUP BY t.id
+    ORDER BY t.date DESC
+  `;
+  
+  db.all(query, (err, threads) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json(threads);
+  });
+});
+
+// Zmień status tematu (zamknięcie/otwarcie)
+app.put('/api/admin/threads/:id/status', authenticateToken, requirePermission('manage_threads'), (req, res) => {
+  const threadId = req.params.id;
+  const { is_closed } = req.body;
+
+  db.run(
+    'UPDATE threads SET is_closed = ? WHERE id = ?',
+    [is_closed, threadId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Temat nie istnieje' });
+      }
+      
+      res.json({ message: `Temat ${is_closed ? 'zamknięty' : 'otwarty'}` });
+    }
+  );
+});
+
+// Zmień status przypięcia tematu
+app.put('/api/admin/threads/:id/sticky', authenticateToken, requirePermission('manage_threads'), (req, res) => {
+  const threadId = req.params.id;
+  const { is_sticky } = req.body;
+
+  db.run(
+    'UPDATE threads SET is_sticky = ? WHERE id = ?',
+    [is_sticky, threadId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Temat nie istnieje' });
+      }
+      
+      res.json({ message: `Temat ${is_sticky ? 'przypięty' : 'odpięty'}` });
+    }
+  );
+});
+
+// Edytuj temat (tytuł, kategoria)
+app.put('/api/admin/threads/:id', authenticateToken, requirePermission('manage_threads'), (req, res) => {
+  const threadId = req.params.id;
+  const { title, category_id, is_closed, is_sticky } = req.body;
+
+  db.run(
+    'UPDATE threads SET title = ?, category_id = ?, is_closed = ?, is_sticky = ? WHERE id = ?',
+    [title, category_id, is_closed, is_sticky, threadId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Temat nie istnieje' });
+      }
+      
+      res.json({ message: 'Temat zaktualizowany' });
+    }
+  );
+});
+
+// Usuń temat (dla adminów/moderatorów)
+app.delete('/api/admin/threads/:id', authenticateToken, requirePermission('manage_threads'), (req, res) => {
+  const threadId = req.params.id;
+
+  // Najpierw usuń wszystkie posty w wątku
+  db.run('DELETE FROM posts WHERE thread_id = ?', [threadId], (err) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    // Następnie usuń wątek
+    db.run('DELETE FROM threads WHERE id = ?', [threadId], function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Temat nie istnieje' });
+      }
+      
+      res.json({ message: 'Temat i wszystkie posty zostały usunięte' });
+    });
+  });
+});
+
+// Pobierz wszystkie posty do zarządzania (dla adminów i moderatorów)
+app.get('/api/admin/posts', authenticateToken, requirePermission('manage_posts'), (req, res) => {
+  const query = `
+    SELECT 
+      p.*,
+      t.title as thread_title,
+      u.username as author_name,
+      c.name as category_name
+    FROM posts p
+    JOIN threads t ON p.thread_id = t.id
+    JOIN categories c ON t.category_id = c.id
+    JOIN users u ON p.user_id = u.id
+    ORDER BY p.date DESC
+  `;
+  
+  db.all(query, (err, posts) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json(posts);
+  });
+});
+
+// Usuń post (dla adminów/moderatorów)
+app.delete('/api/admin/posts/:id', authenticateToken, requirePermission('manage_posts'), (req, res) => {
+  const postId = req.params.id;
+
+  // Najpierw pobierz informacje o poście do aktualizacji statystyk
+  db.get(`
+    SELECT p.thread_id, t.category_id, t.replies 
+    FROM posts p 
+    JOIN threads t ON p.thread_id = t.id 
+    WHERE p.id = ?
+  `, [postId], (err, postInfo) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!postInfo) {
+      return res.status(404).json({ error: 'Post nie istnieje' });
+    }
+
+    // Usuń post
+    db.run('DELETE FROM posts WHERE id = ?', [postId], function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Post nie istnieje' });
+      }
+
+      // Aktualizuj licznik odpowiedzi w wątku
+      db.run(
+        'UPDATE threads SET replies = replies - 1 WHERE id = ?',
+        [postInfo.thread_id]
+      );
+
+      // Aktualizuj licznik postów w kategorii
+      db.run(
+        'UPDATE categories SET posts = posts - 1 WHERE id = ?',
+        [postInfo.category_id]
+      );
+
+      // Jeśli to był jedyny post w wątku, usuń też wątek
+      if (postInfo.replies === 1) {
+        db.run('DELETE FROM threads WHERE id = ?', [postInfo.thread_id]);
+      }
+
+      res.json({ message: 'Post został usunięty' });
+    });
+  });
+});
+
 function getUserStatus(lastLogin, isCurrentUser = false) {
   if (!lastLogin) return 'offline';
   
