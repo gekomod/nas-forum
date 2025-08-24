@@ -432,6 +432,30 @@ export default {
         this.$message.error(error.response?.data?.error || 'Błąd podczas usuwania odpowiedzi');
       }
     },
+  
+    formatRelativeTime(dateString) {
+      if (!dateString) return 'Brak danych';
+      
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Nieprawidłowa data';
+      
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffMins < 1) return 'teraz';
+      if (diffMins < 60) return `${diffMins} min`;
+      if (diffHours < 24) return `${diffHours} godz`;
+      if (diffDays === 1) return '1 dzień';
+      if (diffDays < 30) return `${diffDays} dni`;
+      
+      const diffMonths = Math.floor(diffDays / 30);
+      if (diffMonths === 1) return '1 miesiąc';
+      return `${diffMonths} miesięcy`;
+    }, 
+  
   formatDaysAgo(dateString) {
     if (!dateString) return 'brak danych';
     
