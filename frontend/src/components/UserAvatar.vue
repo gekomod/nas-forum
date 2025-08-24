@@ -1,6 +1,13 @@
 <template>
   <div class="user-avatar" :class="[size, status]">
-    <div class="avatar-image">
+    <img 
+      v-if="avatarUrl" 
+      :src="avatarUrl" 
+      :alt="user" 
+      class="avatar-image"
+      @error="handleImageError"
+    >
+    <div v-else class="avatar-image fallback">
       {{ getUserInitials(user) }}
     </div>
     <div class="status-indicator" :class="status"></div>
@@ -12,6 +19,7 @@ export default {
   name: 'UserAvatar',
   props: {
     user: String,
+    avatar: String,
     status: {
       type: String,
       default: 'offline'
@@ -21,10 +29,26 @@ export default {
       default: 'medium'
     }
   },
+  computed: {
+    avatarUrl() {
+      if (!this.avatar) return null;
+      if (this.avatar.startsWith('http')) {
+        return this.avatar;
+      }
+      return this.avatar;
+    }
+  },
   methods: {
     getUserInitials(username) {
       if (!username) return '?';
       return username.charAt(0).toUpperCase();
+    },
+    handleImageError(event) {
+      event.target.style.display = 'none';
+      const fallback = event.target.parentElement.querySelector('.fallback');
+      if (fallback) {
+        fallback.style.display = 'flex';
+      }
     }
   }
 }
@@ -38,12 +62,22 @@ export default {
 
 .avatar-image {
   border-radius: 50%;
-  background: var(--gradient-primary);
-  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 600;
+  object-fit: cover;
+}
+
+.avatar-image.fallback {
+  background: var(--gradient-primary);
+  color: white;
+}
+
+.avatar-image img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
 }
 
 .user-avatar.small .avatar-image {

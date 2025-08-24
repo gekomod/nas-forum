@@ -63,19 +63,23 @@
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="title" label="Tytuł" min-width="200">
           <template #default="scope">
-            <router-link 
-              :to="`/thread/${scope.row.id}`" 
+            <a 
+              href="#" 
               class="thread-link"
-              @click.prevent="viewThread(scope.row)"
+              @click.prevent="viewThread(scope.row.id)"
             >
               {{ scope.row.title }}
-            </router-link>
+            </a>
           </template>
         </el-table-column>
         <el-table-column prop="category_name" label="Kategoria" width="150" />
         <el-table-column prop="author_name" label="Autor" width="120" />
         <el-table-column prop="post_count" label="Odpowiedzi" width="80" />
-        <el-table-column prop="view_count" label="Wyświetlenia" width="100" />
+        <el-table-column prop="view_count" label="Wyświetlenia" width="100">
+          <template #default="scope">
+            {{ scope.row.views || 0 }}
+          </template>
+        </el-table-column>
         <el-table-column label="Status" width="120">
           <template #default="scope">
             <el-tag 
@@ -198,6 +202,7 @@ import axios from "axios";
 export default {
   name: 'ThreadsManagement',
   components: { Icon },
+  emits: ['view-thread'],
   data() {
     return {
       threads: [],
@@ -225,7 +230,6 @@ export default {
     filteredThreads() {
       let filtered = this.threads;
       
-      // Filtrowanie po wyszukiwaniu
       if (this.searchQuery) {
         const query = this.searchQuery.toLowerCase();
         filtered = filtered.filter(thread => 
@@ -234,7 +238,6 @@ export default {
         );
       }
       
-      // Filtrowanie po statusie
       if (this.statusFilter) {
         filtered = filtered.filter(thread => {
           if (this.statusFilter === 'active') return !thread.is_closed;
@@ -261,7 +264,7 @@ export default {
       try {
         const response = await axios.get('/profile');
         const userRole = response.data.role_id;
-        this.hasPermission = userRole === 1 || userRole === 2; // Admin lub moderator
+        this.hasPermission = userRole === 1 || userRole === 2;
         if (this.hasPermission) {
           this.loadThreads();
           this.loadCategories();
@@ -363,16 +366,30 @@ export default {
         this.saving = false;
       }
     },
-    viewThread(thread) {
-      // Otwórz temat w nowej karcie lub przejdź do niego
-      window.open(`/thread/${thread.id}`, '_blank');
+    viewThread(threadId) {
+      this.$emit('view-thread', threadId);
     },
     refreshThreads() {
       this.loadThreads();
       this.loadCategories();
     },
-    formatDate(date) {
-      return new Date(date).toLocaleDateString('pl-PL');
+    formatDate(dateString) {
+      if (!dateString) return 'Brak daty';
+      
+      try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'Błędna data';
+        
+        return date.toLocaleDateString('pl-PL', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } catch (error) {
+        return 'Błędna data';
+      }
     },
     getStatusType(thread) {
       if (thread.is_closed) return 'danger';
@@ -386,7 +403,6 @@ export default {
       return 'Aktywny';
     },
     handleSearch() {
-      // Debounce można dodać jeśli potrzeba
       this.currentPage = 1;
     },
     handlePageChange(page) {
@@ -399,30 +415,28 @@ export default {
 <style scoped>
 .threads-management {
   background: var(--card-bg);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  border-radius: 12px;
   border: 1px solid var(--card-border);
-  padding: 20px;
-  margin-bottom: 20px;
+  padding: 24px;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--el-border-color-light);
 }
 
 .page-header h2 {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin: 0;
   color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 600;
 }
 
 .filters-section {

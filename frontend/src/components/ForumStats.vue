@@ -36,6 +36,13 @@
         <span class="online-number">{{ onlineData.total_online || 0 }}</span>
         <span class="online-label">Online</span>
       </div>
+      
+      <!-- Dodane: Użytkownicy na tej stronie -->
+      <div class="online-item" v-tooltip="`Użytkownicy przeglądający tę stronę: ${pageUsersList}`">
+        <Icon icon="mdi:earth" class="online-icon page" />
+        <span class="online-number">{{ pageUsers.length }}</span>
+        <span class="online-label">Na stronie</span>
+      </div>
     </div>
   </div>
 </template>
@@ -61,8 +68,10 @@ export default {
         total_online: 0,
         users: []
       },
+      pageUsers: [], // Użytkownicy na aktualnej stronie
       refreshInterval: null,
-      onlineInterval: null
+      onlineInterval: null,
+      pageUsersInterval: null
     };
   },
   computed: {
@@ -71,11 +80,18 @@ export default {
         return 'Brak zalogowanych użytkowników';
       }
       return this.onlineData.users.map(user => user.username).join(', ');
+    },
+    pageUsersList() {
+      if (this.pageUsers.length === 0) {
+        return 'Brak użytkowników na tej stronie';
+      }
+      return this.pageUsers.map(user => user.username).join(', ');
     }
   },
   mounted() {
     this.startAutoRefresh();
     this.loadOnlineUsers();
+    this.loadPageUsers();
   },
   beforeUnmount() {
     this.stopAutoRefresh();
@@ -98,6 +114,16 @@ export default {
       }
     },
     
+    async loadPageUsers() {
+      try {
+        // Endpoint do pobierania użytkowników na aktualnej stronie
+        const response = await axios.get('/page-users');
+        this.pageUsers = response.data.users || [];
+      } catch (error) {
+        console.error('Error loading page users:', error);
+      }
+    },
+    
     startAutoRefresh() {
       // Odświeżaj co 10 sekund dla lepszej aktualności
       this.refreshInterval = setInterval(() => {
@@ -107,11 +133,16 @@ export default {
       this.onlineInterval = setInterval(() => {
         this.loadOnlineUsers();
       }, 10000); // Co 10 sekund
+      
+      this.pageUsersInterval = setInterval(() => {
+        this.loadPageUsers();
+      }, 15000); // Co 15 sekund
     },
     
     stopAutoRefresh() {
       if (this.refreshInterval) clearInterval(this.refreshInterval);
       if (this.onlineInterval) clearInterval(this.onlineInterval);
+      if (this.pageUsersInterval) clearInterval(this.pageUsersInterval);
     }
   }
 }
@@ -202,6 +233,10 @@ export default {
   color: var(--el-color-primary);
 }
 
+.online-icon.page {
+  color: var(--el-color-warning);
+}
+
 .online-number {
   font-weight: bold;
   color: var(--text-primary);
@@ -223,16 +258,6 @@ export default {
 .online-item.total .online-label {
   color: var(--el-color-primary);
   font-weight: 600;
-}
-
-.v-tooltip {
-  background: var(--el-bg-color-overlay);
-  color: var(--el-text-color-primary);
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  padding: 8px 12px;
-  font-size: 12px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 }
 
 /* Responsywność */

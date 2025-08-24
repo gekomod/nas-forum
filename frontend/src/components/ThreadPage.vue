@@ -47,8 +47,15 @@
       <div v-for="(post, index) in posts" :key="post.id" 
            class="post reply" 
            :class="{'post-even': index % 2 === 0, 'post-odd': index % 2 === 1, 'editing': post.editing}">
+        
+        <div class="post-number">
+          <a :href="`#post-${post.id}`" class="post-number-link">
+            #{{ index + 1 }}
+          </a>
+        </div>
+           
         <div class="post-sidebar">
-          <UserAvatar :user="post.author" :status="post.author_status" />
+          <UserAvatar :user="post.author" :status="post.author_status" :avatar="post.author_avatar" />
           <div class="user-info">
             <div class="username">{{ post.author }}</div>
             <div class="user-status" :class="post.author_status">
@@ -58,9 +65,27 @@
               <Icon icon="mdi:message-text" />
               {{ post.author_posts }} postów
             </div>
+            
+              <!-- Dodane informacje o użytkowniku -->
+  <div class="user-details">
+    <div class="user-detail" v-if="post.author_register_date">
+      <Icon icon="mdi:calendar" />
+      Rejestracja: {{ post.author_register_date }}
+    </div>
+    <div class="user-detail" v-if="post.author_last_login">
+      <Icon icon="mdi:clock" />
+      Ostatnio: {{ formatLastActivity(post.author_last_login) }}
+    </div>
+    <div class="user-detail" v-if="post.author_posts_count">
+      <Icon icon="mdi:message-text" />
+      Postów: {{ post.author_posts_count }}
+    </div>
+  </div>
+  
           </div>
         </div>
         <div class="post-content">
+          <a :id="`post-${post.id}`" class="post-anchor"></a>
           <div v-if="!post.editing" class="post-body" v-html="compiledMarkdown(post.content)" />
           
           <!-- Edycja posta -->
@@ -396,7 +421,47 @@ export default {
         console.error('Error deleting post:', error);
         this.$message.error(error.response?.data?.error || 'Błąd podczas usuwania posta');
       }
-    }
+    },
+  formatDaysAgo(dateString) {
+    if (!dateString) return 'brak danych';
+    
+    const joinDate = new Date(dateString);
+    const today = new Date();
+    const diffTime = Math.abs(today - joinDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 1) return '1 dzień';
+    if (diffDays < 30) return `${diffDays} dni`;
+    
+    const diffMonths = Math.floor(diffDays / 30);
+    if (diffMonths === 1) return '1 miesiąc';
+    if (diffMonths < 12) return `${diffMonths} miesięcy`;
+    
+    const diffYears = Math.floor(diffMonths / 12);
+    if (diffYears === 1) return '1 rok';
+    return `${diffYears} lat`;
+  },
+  
+  formatLastActivity(dateString) {
+    if (!dateString) return 'brak danych';
+    
+    const activityDate = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - activityDate;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMins < 1) return 'teraz';
+    if (diffMins < 60) return `${diffMins} min`;
+    if (diffHours < 24) return `${diffHours} godz`;
+    if (diffDays === 1) return '1 dzień';
+    if (diffDays < 30) return `${diffDays} dni`;
+    
+    const diffMonths = Math.floor(diffDays / 30);
+    if (diffMonths === 1) return '1 miesiąc';
+    return `${diffMonths} miesięcy`;
+  }
   }
 }
 </script>
@@ -463,6 +528,7 @@ export default {
   border-radius: 8px;
   margin-bottom: 10px;
   transition: all 0.2s ease;
+  position: relative; /* Potrzebne dla pozycjonowania numeru */
 }
 
 .post-even {
@@ -479,6 +545,27 @@ export default {
 .post:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
+}
+
+.post-number {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  z-index: 2;
+}
+
+.post-number-link {
+  display: block;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.post-number-link:hover {
+  color: var(--el-color-primary);
+  transform: scale(1.1);
 }
 
 .post-sidebar {
@@ -528,6 +615,13 @@ export default {
 
 .post-content {
   flex: 1;
+  position: relative;
+}
+
+.post-anchor {
+  position: absolute;
+  top: -70px; /* Offset dla fixed header */
+  visibility: hidden;
 }
 
 .post-body {
@@ -558,10 +652,13 @@ export default {
   background: #1e1e1e;
   padding: 16px;
   border-radius: 6px;
-  overflow-x: auto;
+  overflow-x: auto; /* Dodaj przewijanie poziome */
   margin: 16px 0;
   border: 1px solid var(--el-border-color-light);
   position: relative;
+  max-width: 100%; /* Zapobiega rozszerzaniu poza kontener */
+  white-space: pre-wrap; /* Zawijanie wierszy */
+  word-wrap: break-word; /* Łamanie długich słów */
 }
 
 .post-body :deep(pre)::before {
@@ -584,6 +681,10 @@ export default {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   line-height: 1.5;
   font-size: 14px;
+  white-space: pre-wrap; /* Zawijanie kodu */
+  word-wrap: break-word; /* Łamanie długich linii */
+  display: block;
+  overflow-x: auto;
 }
 
 .post-body :deep(blockquote) {
@@ -725,8 +826,42 @@ export default {
   margin-top: 20px;
 }
 
+.user-details {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.user-detail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
+  line-height: 1.3;
+}
+
+.user-detail:last-child {
+  margin-bottom: 0;
+}
+
+.user-detail .iconify {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
 /* Dla ciemnego motywu */
 @media (prefers-color-scheme: dark) {
+  .post-body :deep(pre) {
+    background: #2d3748;
+    border-color: #4a5568;
+  }
+  
+  .post-body :deep(pre code) {
+    color: #e2e8f0;
+  }
+
   .post-even {
     background-color: var(--post-bg-even-dark, #2d3748);
     border-color: var(--post-border-even-dark, #4a5568);
@@ -740,6 +875,14 @@ export default {
   .preview-container {
     background: #2d3748;
     border-color: #4a5568;
+  }
+  
+  .post-number-link {
+    background: var(--el-color-primary-dark-2);
+  }
+  
+  .post-number-link:hover {
+    background: var(--el-color-primary);
   }
 }
 
@@ -756,11 +899,23 @@ export default {
   }
   
   .post {
-    flex-direction: column;
     padding: 15px;
+    padding-left: 50px; /* Więcej miejsca na mobile */
+  }
+  
+  .post-number {
+    top: 10px;
+    left: 10px;
+  }
+  
+  .post-number-link {
+    width: 32px;
+    height: 32px;
+    font-size: 11px;
   }
   
   .post-sidebar {
+    margin-left: 0;
     width: 100%;
     margin-right: 0;
     margin-bottom: 15px;
@@ -772,6 +927,32 @@ export default {
     gap: 10px;
     text-align: left;
   }
+  
+.post-number-alt {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  z-index: 2;
+}
+
+.post-number-alt-link {
+  display: block;
+  padding: 4px 8px;
+  background: var(--el-fill-color-light);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  font-weight: 500;
+  font-size: 11px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  border: 1px solid var(--el-border-color-light);
+}
+
+.post-number-alt-link:hover {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary-light-5);
+}
   
   .user-info {
     margin-top: 0;

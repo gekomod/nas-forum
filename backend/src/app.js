@@ -394,20 +394,22 @@ app.get('/api/category/:id/threads', (req, res) => {
 app.get('/api/thread/:id', (req, res) => {
   const threadId = req.params.id;
   
-  const threadQuery = `
-    SELECT t.*, u.last_login as author_last_login
-    FROM threads t 
-    LEFT JOIN users u ON t.author = u.username
-    WHERE t.id = ?
-  `;
-  
-  const postsQuery = `
-    SELECT p.*, u.last_login as author_last_login
-    FROM posts p 
-    LEFT JOIN users u ON p.author = u.username
-    WHERE p.thread_id = ? 
-    ORDER BY p.date ASC
-  `;
+	const threadQuery = `
+	  SELECT t.*, u.last_login as author_last_login, u.created_at as author_created_at,
+		 u.avatar as author_avatar,
+		 (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count
+	  FROM threads t 
+	  LEFT JOIN users u ON t.author = u.username
+	  WHERE t.id = ?`;
+
+	const postsQuery = `
+	  SELECT p.*, u.last_login as author_last_login, u.created_at as author_created_at,
+		 u.avatar as author_avatar,
+		 (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count
+	  FROM posts p 
+	  LEFT JOIN users u ON p.author = u.username
+	  WHERE p.thread_id = ? 
+	  ORDER BY p.date ASC`;
   
   // Pobierz wątek
   db.get(threadQuery, [threadId], (err, thread) => {
@@ -428,11 +430,17 @@ app.get('/api/thread/:id', (req, res) => {
       res.json({
         thread: {
           ...thread,
-          author_status: getUserStatus(thread.author_last_login)
+          author_status: getUserStatus(thread.author_last_login),
+          author_register_date: formatRegistrationDate(thread.author_created_at),
+          author_last_activity: formatRelativeTime(thread.author_last_login),
+          author_posts_count: thread.author_posts_count || 0
         },
         posts: posts.map(post => ({
           ...post,
-          author_status: getUserStatus(post.author_last_login)
+          author_status: getUserStatus(post.author_last_login),
+          author_register_date: formatRegistrationDate(post.author_created_at),
+          author_last_activity: formatRelativeTime(post.author_last_login),
+          author_posts_count: post.author_posts_count || 0
         }))
       });
     });
@@ -556,12 +564,32 @@ app.post('/api/thread/:id/posts', authenticateToken, (req, res) => {
 // Pobierz posty wątku - dostępny dla wszystkich
 app.get('/api/thread/:id/posts', (req, res) => {
   const threadId = req.params.id;
-  db.all('SELECT * FROM posts WHERE thread_id = ? ORDER BY id', [threadId], (err, rows) => {
+  
+  const query = `
+    SELECT p.*, u.last_login as author_last_login, u.created_at as author_created_at, u.avatar as author_avatar,
+           (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count
+    FROM posts p 
+    LEFT JOIN users u ON p.author = u.username
+    WHERE p.thread_id = ? 
+    ORDER BY p.id ASC
+  `;
+  
+  db.all(query, [threadId], (err, posts) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
     }
-    res.json(rows);
+    
+    // Dodaj informacje o autorze do każdego posta
+    const postsWithAuthorInfo = posts.map(post => ({
+      ...post,
+      author_status: getUserStatus(post.author_last_login),
+      author_register_date: formatRegistrationDate(post.author_created_at),
+      author_last_activity: formatRelativeTime(post.author_last_login),
+      author_posts_count: post.author_posts_count || 0
+    }));
+    
+    res.json(postsWithAuthorInfo);
   });
 });
 
@@ -1197,6 +1225,35 @@ app.get('/api/online-users', (req, res) => {
   });
 });
 
+// Endpoint do pobierania użytkowników na aktualnej stronie
+app.get('/api/page-users', (req, res) => {
+  const pageUsers = [];
+  
+  for (const session of activeSessions.values()) {
+    if (session.type === 'user') {
+      pageUsers.push({
+        id: session.userId,
+        username: session.username,
+        status: getUserStatus(session.lastActivity)
+      });
+    }
+  }
+  
+  res.json({ users: pageUsers });
+});
+
+function formatRegistrationDate(registerDate) {
+  const register = new Date(registerDate);
+  const now = new Date();
+  const diffMs = now - register;
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffDays === 0) return 'Dziś';
+  if (diffDays === 1) return 'Wczoraj';
+  if (diffDays < 7) return `${diffDays} dni`;
+  if (diffDays < 30) return `${Math.floor(diffDays/7)} tyg`;
+  return register.toLocaleDateString('pl-PL');
+}
 
 function getUserStatus(lastLogin, isCurrentUser = false) {
   if (!lastLogin) return 'offline';

@@ -13,7 +13,7 @@
         @show-login="showAuthModal(true)"
         @show-register="showAuthModal(false)"
         @show-profile="showProfileModal = true"
-        @show-users="currentView = 'users'"
+        @show-admin-panel="currentView = 'admin-panel'"
         @show-categories="showCategoryModal = true"
         @logout="handleLogout"
       />
@@ -29,21 +29,9 @@
             <Icon icon="mdi:view-grid" />
             Kategorie
           </el-menu-item>
-          <el-menu-item index="users" v-if="isAdmin">
-            <Icon icon="mdi:account-group" />
-            Użytkownicy
-          </el-menu-item>
-          <el-menu-item index="categories-management" v-if="isAdmin">
-	    <Icon icon="mdi:shape-outline" />
-	    Zarządzanie kategoriami
-	  </el-menu-item>
-          <el-menu-item index="threads-management" v-if="isAdminOrModerator">
-            <Icon icon="mdi:forum-outline" />
-            Zarządzanie tematami
-          </el-menu-item>
-          <el-menu-item index="posts-management" v-if="isAdminOrModerator">
-            <Icon icon="mdi:message-text" />
-            Zarządzanie postami
+          <el-menu-item index="admin-panel" v-if="isAdminOrModerator">
+            <Icon icon="mdi:cog" />
+            Panel Administracyjny
           </el-menu-item>
         </el-menu>
       </div>
@@ -51,7 +39,6 @@
       <ForumStats v-if="currentView === 'categories'" :stats="stats" />
       
       <div class="forum-content">
-      
         <CategoriesList 
           v-if="currentView === 'categories'"
           :categories="categories"
@@ -63,7 +50,7 @@
           v-if="currentView === 'categories'"
           :threads="activeThreads"
         />
-        
+                
         <CategoryPage 
           v-if="currentView === 'category'"
           :category="selectedCategory"
@@ -75,22 +62,27 @@
           @delete-thread="handleDeleteThread"
         />
         
-     <ThreadPage 
-      v-if="currentView === 'thread'"
-      :thread-data="selectedThread"
-      :category="selectedCategory"
-      :user="currentUser"
-      @back-to-category="currentView = 'category'"
-    />
+        <ThreadPage 
+          v-if="currentView === 'thread'"
+          :thread-data="selectedThread"
+          :category="selectedCategory"
+          :user="currentUser"
+          @back-to-category="currentView = 'category'"
+        />
 
-        <UsersManagement v-if="currentView === 'users' && isAdmin" />
-        <CategoryManagement v-if="currentView === 'categories-management' && isAdmin" />
-        <ThreadsManagement v-if="currentView === 'threads-management' && isAdminOrModerator" />
-        <PostsManagement v-if="currentView === 'posts-management' && isAdminOrModerator" />
+        <!-- Użyj nowego komponentu AdminPanel -->
+        <AdminPanel 
+          v-if="currentView === 'admin-panel'" 
+          :is-admin="isAdmin"
+        />
+        
+              <PageUsers 
+        v-if="currentView !== 'categories'"
+      />
       </div>
     </div>
 
-    <!-- Modale -->
+    <!-- Modale pozostają bez zmian -->
     <AuthModal 
       :show="showAuthModalVisible" 
       :is-login="authModalIsLogin"
@@ -121,8 +113,6 @@
       @create-thread="handleCreateThread"
       @closed="resetThreadForm"
     />
-
-
   </div>
 </template>
 
@@ -141,6 +131,8 @@ import ThreadPage from './components/ThreadPage.vue'
 import CreateThreadModal from './components/CreateThreadModal.vue'
 import ThreadsManagement from './components/ThreadsManagement.vue' 
 import PostsManagement from './components/PostsManagement.vue';
+import AdminPanel from './components/AdminPanel.vue';
+import PageUsers from './components/PageUsers.vue';
 import { Icon } from "@iconify/vue";
 import axios from 'axios'
 
@@ -161,6 +153,8 @@ export default {
     CreateThreadModal,
     ThreadsManagement,
     PostsManagement,
+    AdminPanel,
+    PageUsers,
     Icon
   },
   data() {

@@ -35,8 +35,8 @@
               <Icon icon="mdi:account" /> Mój profil
             </el-dropdown-item>
             
-            <el-dropdown-item v-if="user.role_id === 1" @click="$emit('show-users')">
-              <Icon icon="mdi:account-group" /> Zarządzaj użytkownikami
+            <el-dropdown-item v-if="user.role_id === 1 || user.role_id === 2" @click="$emit('show-admin-panel')">
+              <Icon icon="mdi:cog" /> Panel Administracyjny
             </el-dropdown-item>
             
             <el-dropdown-item v-if="user.role_id === 1" @click="$emit('show-categories')">
@@ -77,7 +77,16 @@ export default {
   props: {
     darkMode: Boolean,
     user: Object
-  }
+  },
+  emits: [
+    'toggle-dark-mode', 
+    'show-login', 
+    'show-register', 
+    'show-profile', 
+    'show-admin-panel',
+    'show-categories', 
+    'logout'
+  ]
 }
 </script>
 

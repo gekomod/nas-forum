@@ -110,65 +110,67 @@
               </div>
             </div>
 
-            <div class="thread-stats">
-              <div class="stat">
-                <Icon icon="mdi:message-reply" />
-                <span>{{ thread.replies }}</span>
-              </div>
-              <div class="stat">
-                <Icon icon="mdi:eye-outline" />
-                <span>{{ thread.views }}</span>
-              </div>
-            </div>
-
-            <div class="thread-lastpost" v-if="thread.last_post_author">
-              <div class="lastpost-avatar">
-                <div class="avatar-placeholder">
-                  <Icon icon="mdi:account" />
+            <div class="thread-right-section">
+              <div class="thread-stats">
+                <div class="stat">
+                  <Icon icon="mdi:message-reply" />
+                  <span>{{ thread.replies }}</span>
+                </div>
+                <div class="stat">
+                  <Icon icon="mdi:eye-outline" />
+                  <span>{{ thread.views }}</span>
                 </div>
               </div>
-              <div class="lastpost-info">
-                <div class="lastpost-author">{{ thread.last_post_author }}</div>
-                <div class="lastpost-time">{{ formatDate(thread.last_post_time) }}</div>
-              </div>
-            </div>
 
-            <div class="thread-actions" v-if="user && (user.id === thread.user_id || user.role_id === 1 || user.role_id === 2)">
-              <el-dropdown trigger="click" @click.stop>
-                <button class="action-btn" @click.stop>
-                  <Icon icon="mdi:dots-vertical" />
-                </button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item 
-                      v-if="user.id === thread.user_id && thread.replies === 0 && !thread.is_closed"
-                      @click="confirmDeleteThread(thread.id)">
-                      <Icon icon="mdi:delete" /> Usuń wątek
-                    </el-dropdown-item>
-                    <el-dropdown-item 
-                      v-if="user.role_id === 1 || user.role_id === 2"
-                      @click="confirmDeleteThread(thread.id)">
-                      <Icon icon="mdi:delete" /> Usuń (moderator)
-                    </el-dropdown-item>
-                    <el-dropdown-item 
-                      v-if="(user.role_id === 1 || user.role_id === 2) && !thread.is_closed"
-                      @click="$emit('toggle-close-thread', thread.id)">
-                      <Icon icon="mdi:lock" /> Zamknij wątek
-                    </el-dropdown-item>
-                    <el-dropdown-item 
-                      v-if="(user.role_id === 1 || user.role_id === 2) && thread.is_closed"
-                      @click="$emit('toggle-close-thread', thread.id)">
-                      <Icon icon="mdi:lock-open" /> Otwórz wątek
-                    </el-dropdown-item>
-                    <el-dropdown-item 
-                      v-if="user.role_id === 1 || user.role_id === 2"
-                      @click="$emit('toggle-sticky-thread', thread.id)">
-                      <Icon icon="mdi:pin-off" />
-                      Odepnij
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
+              <div class="thread-lastpost" v-if="thread.last_post_author">
+                <div class="lastpost-avatar">
+                  <div class="avatar-placeholder">
+                    <Icon icon="mdi:account" />
+                  </div>
+                </div>
+                <div class="lastpost-info">
+                  <div class="lastpost-author">{{ thread.last_post_author }}</div>
+                  <div class="lastpost-time">{{ formatRelativeTime(thread.last_post_time) }}</div>
+                </div>
+              </div>
+
+              <div class="thread-actions" v-if="user && (user.id === thread.user_id || user.role_id === 1 || user.role_id === 2)">
+                <el-dropdown trigger="click" @click.stop>
+                  <button class="action-btn" @click.stop>
+                    <Icon icon="mdi:dots-vertical" />
+                  </button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item 
+                        v-if="user.id === thread.user_id && thread.replies === 0 && !thread.is_closed"
+                        @click="confirmDeleteThread(thread.id)">
+                        <Icon icon="mdi:delete" /> Usuń wątek
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="user.role_id === 1 || user.role_id === 2"
+                        @click="confirmDeleteThread(thread.id)">
+                        <Icon icon="mdi:delete" /> Usuń (moderator)
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="(user.role_id === 1 || user.role_id === 2) && !thread.is_closed"
+                        @click="$emit('toggle-close-thread', thread.id)">
+                        <Icon icon="mdi:lock" /> Zamknij wątek
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="(user.role_id === 1 || user.role_id === 2) && thread.is_closed"
+                        @click="$emit('toggle-close-thread', thread.id)">
+                        <Icon icon="mdi:lock-open" /> Otwórz wątek
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="user.role_id === 1 || user.role_id === 2"
+                        @click="$emit('toggle-sticky-thread', thread.id)">
+                        <Icon icon="mdi:pin-off" />
+                        Odepnij
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
             </div>
           </div>
 
@@ -223,65 +225,67 @@
               </div>
             </div>
 
-            <div class="thread-stats">
-              <div class="stat">
-                <Icon icon="mdi:message-reply" />
-                <span>{{ thread.replies }}</span>
-              </div>
-              <div class="stat">
-                <Icon icon="mdi:eye-outline" />
-                <span>{{ thread.views }}</span>
-              </div>
-            </div>
-
-            <div class="thread-lastpost" v-if="thread.last_post_author">
-              <div class="lastpost-avatar">
-                <div class="avatar-placeholder">
-                  <Icon icon="mdi:account" />
+            <div class="thread-right-section">
+              <div class="thread-stats">
+                <div class="stat">
+                  <Icon icon="mdi:message-reply" />
+                  <span>{{ thread.replies }}</span>
+                </div>
+                <div class="stat">
+                  <Icon icon="mdi:eye-outline" />
+                  <span>{{ thread.views }}</span>
                 </div>
               </div>
-              <div class="lastpost-info">
-                <div class="lastpost-author">{{ thread.last_post_author }}</div>
-                <div class="lastpost-time">{{ formatDate(thread.last_post_time) }}</div>
-              </div>
-            </div>
 
-            <div class="thread-actions" v-if="user && (user.id === thread.user_id || user.role_id === 1 || user.role_id === 2)">
-              <el-dropdown trigger="click">
-                <button class="action-btn" @click.stop>
-                  <Icon icon="mdi:dots-vertical" />
-                </button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item 
-                      v-if="user.id === thread.user_id && thread.replies === 0 && !thread.is_closed"
-                      @click="confirmDeleteThread(thread.id)">
-                      <Icon icon="mdi:delete" /> Usuń wątek
-                    </el-dropdown-item>
-                    <el-dropdown-item 
-                      v-if="user.role_id === 1 || user.role_id === 2"
-                      @click="confirmDeleteThread(thread.id)">
-                      <Icon icon="mdi:delete" /> Usuń (moderator)
-                    </el-dropdown-item>
-                    <el-dropdown-item 
-                      v-if="(user.role_id === 1 || user.role_id === 2) && !thread.is_closed"
-                      @click="$emit('toggle-close-thread', thread.id)">
-                      <Icon icon="mdi:lock" /> Zamknij wątek
-                    </el-dropdown-item>
-                    <el-dropdown-item 
-                      v-if="(user.role_id === 1 || user.role_id === 2) && thread.is_closed"
-                      @click="$emit('toggle-close-thread', thread.id)">
-                      <Icon icon="mdi:lock-open" /> Otwórz wątek
-                    </el-dropdown-item>
-                    <el-dropdown-item 
-                      v-if="user.role_id === 1 || user.role_id === 2"
-                      @click="$emit('toggle-sticky-thread', thread.id)">
-                      <Icon icon="mdi:pin" />
-                      Przyklej
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
+              <div class="thread-lastpost" v-if="thread.last_post_author">
+                <div class="lastpost-avatar">
+                  <div class="avatar-placeholder">
+                    <Icon icon="mdi:account" />
+                  </div>
+                </div>
+                <div class="lastpost-info">
+                  <div class="lastpost-author">{{ thread.last_post_author }}</div>
+                  <div class="lastpost-time">{{ formatRelativeTime(thread.last_post_time) }}</div>
+                </div>
+              </div>
+
+              <div class="thread-actions" v-if="user && (user.id === thread.user_id || user.role_id === 1 || user.role_id === 2)">
+                <el-dropdown trigger="click">
+                  <button class="action-btn" @click.stop>
+                    <Icon icon="mdi:dots-vertical" />
+                  </button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item 
+                        v-if="user.id === thread.user_id && thread.replies === 0 && !thread.is_closed"
+                        @click="confirmDeleteThread(thread.id)">
+                        <Icon icon="mdi:delete" /> Usuń wątek
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="user.role_id === 1 || user.role_id === 2"
+                        @click="confirmDeleteThread(thread.id)">
+                        <Icon icon="mdi:delete" /> Usuń (moderator)
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="(user.role_id === 1 || user.role_id === 2) && !thread.is_closed"
+                        @click="$emit('toggle-close-thread', thread.id)">
+                        <Icon icon="mdi:lock" /> Zamknij wątek
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="(user.role_id === 1 || user.role_id === 2) && thread.is_closed"
+                        @click="$emit('toggle-close-thread', thread.id)">
+                        <Icon icon="mdi:lock-open" /> Otwórz wątek
+                      </el-dropdown-item>
+                      <el-dropdown-item 
+                        v-if="user.role_id === 1 || user.role_id === 2"
+                        @click="$emit('toggle-sticky-thread', thread.id)">
+                        <Icon icon="mdi:pin" />
+                        Przyklej
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
             </div>
           </div>
         </div>
@@ -304,9 +308,11 @@
         <el-pagination
           background
           layout="prev, pager, next"
-          :total="50"
-          :page-size="10"
+          :total="totalthreads"
+          :page-size="pageSize"
           :pager-count="5"
+          v-model:current-page="currentPage"
+          @current-change="handlePageChange"
           class="thread-pagination"
         >
         </el-pagination>
@@ -330,7 +336,11 @@ export default {
   },
   data() {
     return {
-      sortBy: 'newest'
+      sortBy: 'newest',
+      loading: false,
+      currentPage: 1,
+      pageSize: 10,
+      totalthreads: 0,
     };
   },
   computed: {
@@ -363,12 +373,18 @@ export default {
     }
   },
   methods: {
+    Pagination() {
+      this.totalthreads = this.threads.length;
+    },
     handleCreateThread() {
       if (!this.category) {
         this.$message.error('Błąd kategorii');
         return;
       }
       this.$emit('create-thread');
+    },
+    handlePageChange(page) {
+      this.currentPage = page;
     },
     selectThread(thread) {
       if (!thread) {
@@ -431,7 +447,32 @@ export default {
         console.error('Błąd formatowania daty:', error);
         return 'Błąd daty';
       }
+    },
+    formatRelativeTime(dateString) {
+      if (!dateString) return 'Brak danych';
+      
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Nieprawidłowa data';
+      
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffMins < 1) return 'teraz';
+      if (diffMins < 60) return `${diffMins} min`;
+      if (diffHours < 24) return `${diffHours} godz`;
+      if (diffDays === 1) return '1 dzień';
+      if (diffDays < 30) return `${diffDays} dni`;
+      
+      const diffMonths = Math.floor(diffDays / 30);
+      if (diffMonths === 1) return '1 miesiąc';
+      return `${diffMonths} miesięcy`;
     }
+  },
+  mounted() {
+    this.Pagination();
   }
 }
 </script>
@@ -597,14 +638,14 @@ export default {
 }
 
 .thread-card {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 16px 24px;
   cursor: pointer;
   transition: all 0.2s ease;
-  align-items: center;
   border-bottom: 1px solid var(--el-border-color-lighter);
+  gap: 20px;
 }
 
 .thread-card:hover {
@@ -624,6 +665,7 @@ export default {
   display: flex;
   align-items: flex-start;
   gap: 16px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -703,6 +745,13 @@ export default {
   gap: 4px;
 }
 
+.thread-right-section {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-shrink: 0;
+}
+
 .thread-stats {
   display: flex;
   gap: 16px;
@@ -724,6 +773,7 @@ export default {
   gap: 10px;
   flex-shrink: 0;
   min-width: 140px;
+  max-width: 160px;
 }
 
 .lastpost-avatar {
@@ -739,22 +789,28 @@ export default {
   align-items: center;
   justify-content: center;
   color: var(--el-text-color-secondary);
+  font-size: 14px;
 }
 
 .lastpost-info {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .lastpost-author {
   font-size: 13px;
   font-weight: 500;
   color: var(--el-text-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lastpost-time {
   font-size: 12px;
   color: var(--el-text-color-secondary);
+  white-space: nowrap;
 }
 
 .thread-actions {
@@ -840,6 +896,23 @@ export default {
 }
 
 /* Responsywność */
+@media (max-width: 1024px) {
+  .thread-right-section {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-end;
+  }
+  
+  .thread-stats {
+    order: 2;
+  }
+  
+  .thread-lastpost {
+    order: 1;
+    min-width: 120px;
+  }
+}
+
 @media (max-width: 768px) {
   .category-container {
     padding: 16px;
@@ -852,22 +925,26 @@ export default {
   }
   
   .thread-card {
-    grid-template-columns: 1fr;
-    gap: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
     padding: 16px;
   }
   
-  .thread-stats, .thread-lastpost {
-    justify-self: start;
-    margin-left: 56px;
+  .thread-right-section {
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    align-items: center;
   }
   
   .thread-stats {
-    order: 3;
+    order: 1;
   }
   
   .thread-lastpost {
-    order: 4;
+    order: 2;
+    min-width: auto;
   }
   
   .thread-actions {
@@ -901,6 +978,22 @@ export default {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
+  }
+  
+  .thread-right-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .thread-lastpost {
+    width: 100%;
+    max-width: none;
+  }
+  
+  .thread-stats {
+    display: flex;
+    gap: 20px;
   }
 }
 </style>
