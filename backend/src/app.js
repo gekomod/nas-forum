@@ -390,7 +390,8 @@ app.get('/api/category/:id/threads', (req, res) => {
   });
 });
 
-app.get('/api/thread/:id', authenticateToken, (req, res) => {
+// Pobierz wątek - dostępny dla wszystkich
+app.get('/api/thread/:id', (req, res) => {
   const threadId = req.params.id;
   
   const threadQuery = `
@@ -437,6 +438,7 @@ app.get('/api/thread/:id', authenticateToken, (req, res) => {
     });
   });
 });
+
 
 app.post('/api/threads', authenticateToken, (req, res) => {
   const { category_id, title, content, tag } = req.body;
@@ -551,6 +553,7 @@ app.post('/api/thread/:id/posts', authenticateToken, (req, res) => {
   });
 });
 
+// Pobierz posty wątku - dostępny dla wszystkich
 app.get('/api/thread/:id/posts', (req, res) => {
   const threadId = req.params.id;
   db.all('SELECT * FROM posts WHERE thread_id = ? ORDER BY id', [threadId], (err, rows) => {
@@ -562,6 +565,7 @@ app.get('/api/thread/:id/posts', (req, res) => {
   });
 });
 
+// Aktywne wątki - dostępny dla wszystkich
 app.get('/api/active-threads', (req, res) => {
   db.all('SELECT * FROM threads ORDER BY date DESC LIMIT 5', (err, rows) => {
     if (err) {
