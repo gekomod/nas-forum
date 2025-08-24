@@ -67,6 +67,8 @@ function initDatabase() {
       date TEXT,
       replies INTEGER DEFAULT 0,
       views INTEGER DEFAULT 0,
+      is_closed INTEGER DEFAULT 0,
+      is_sticky INTEGER DEFAULT 0,
       last_post_author TEXT,
       last_post_time TEXT,
       FOREIGN KEY (category_id) REFERENCES categories (id),

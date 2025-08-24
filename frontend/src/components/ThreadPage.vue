@@ -14,7 +14,19 @@
     </div>
 
     <div class="thread-header">
-      <h1>{{ thread.title }}</h1>
+      <div class="thread-title-row">
+        <h1>{{ thread.title }}</h1>
+        <div class="thread-status-tags">
+          <el-tag v-if="thread.is_sticky" size="small" type="warning" class="status-tag">
+            <Icon icon="mdi:pin" />
+            Przyklejony
+          </el-tag>
+          <el-tag v-if="thread.is_closed" size="small" type="danger" class="status-tag">
+            <Icon icon="mdi:lock" />
+            Zamknięty
+          </el-tag>
+        </div>
+      </div>
       <div class="thread-meta">
         <span class="thread-author">
           <UserAvatar :user="thread.author" :status="thread.author_status" />
@@ -41,6 +53,10 @@
             <div class="username">{{ post.author }}</div>
             <div class="user-status" :class="post.author_status">
               {{ getUserStatusText(post.author_status) }}
+            </div>
+            <div class="user-posts" v-if="post.author_posts">
+              <Icon icon="mdi:message-text" />
+              {{ post.author_posts }} postów
             </div>
           </div>
         </div>
@@ -69,13 +85,13 @@
           <div class="post-footer">
             <div class="post-date">{{ formatDateTime(post.date) }}</div>
             <div class="post-actions" v-if="user">
-              <button class="action-btn" @click="quotePost(post)">
+              <button class="action-btn" @click="quotePost(post)" :disabled="thread.is_closed">
                 <Icon icon="mdi:format-quote-close" />
                 Cytuj
               </button>
               
               <!-- Przycisk edycji (właściciel posta, admin, moderator) -->
-              <button v-if="canEditPost(post)" class="action-btn" @click="startEdit(post)">
+              <button v-if="canEditPost(post)" class="action-btn" @click="startEdit(post)" :disabled="thread.is_closed && !isModerator">
                 <Icon icon="mdi:pencil" />
                 Edytuj
               </button>
@@ -92,7 +108,7 @@
     </div>
 
     <!-- Szybka odpowiedź -->
-    <div class="quick-reply" v-if="user && (!category.is_locked || user.role_id === 1 || user.role_id === 2)">
+    <div class="quick-reply" v-if="user && canReply">
       <h3>Odpowiedz w tym wątku</h3>
       <div class="reply-editor">
         <v-md-editor 
@@ -120,11 +136,21 @@
       </div>
     </div>
 
+    <div class="thread-locked" v-else-if="thread.is_closed">
+      <el-alert
+        title="Wątek zamknięty"
+        type="warning"
+        description="Ten wątek jest zamknięty. Nie możesz dodawać odpowiedzi ani edytować istniejących."
+        show-icon
+        :closable="false"
+      />
+    </div>
+
     <div class="thread-locked" v-else-if="category.is_locked">
       <el-alert
-        title="Wątek zablokowany"
+        title="Kategoria zablokowana"
         type="warning"
-        description="Ten wątek jest zablokowany. Nie możesz dodawać odpowiedzi."
+        description="Ta kategoria jest zablokowana. Nie możesz dodawać odpowiedzi."
         show-icon
         :closable="false"
       />
@@ -169,6 +195,28 @@ export default {
       previewMode: false
     };
   },
+  computed: {
+    // Sprawdza czy użytkownik jest moderatorem lub administratorem
+    isModerator() {
+      return this.user && (this.user.role_id === 1 || this.user.role_id === 2);
+    },
+    
+    // Sprawdza czy użytkownik może odpowiadać w wątku
+    canReply() {
+      // Kategoria zablokowana - tylko moderatorzy mogą odpowiadać
+      if (this.category.is_locked) {
+        return this.isModerator;
+      }
+      
+      // Wątek zamknięty - tylko moderatorzy mogą odpowiadać
+      if (this.thread.is_closed) {
+        return this.isModerator;
+      }
+      
+      // Dla zwykłych użytkowników - mogą odpowiadać jeśli kategoria i wątek nie są zablokowane
+      return true;
+    }
+  },
   mounted() {
     this.loadThread();
   },
@@ -198,6 +246,18 @@ export default {
         return;
       }
       
+      // Sprawdź czy wątek jest zamknięty
+      if (this.thread.is_closed && !this.isModerator) {
+        this.$message.warning('Nie możesz odpowiadać w zamkniętym wątku');
+        return;
+      }
+      
+      // Sprawdź czy kategoria jest zablokowana
+      if (this.category.is_locked && !this.isModerator) {
+        this.$message.warning('Nie możesz odpowiadać w zablokowanej kategorii');
+        return;
+      }
+      
       this.submitting = true;
       try {
         await axios.post(`/thread/${this.thread.id}/posts`, {
@@ -217,6 +277,11 @@ export default {
     },
     
     quotePost(post) {
+      if (this.thread.is_closed && !this.isModerator) {
+        this.$message.warning('Nie możesz cytować w zamkniętym wątku');
+        return;
+      }
+      
       this.replyContent = `> **${post.author} napisał(a):**\n> ${post.content}\n\n${this.replyContent}`;
     },
     
@@ -249,21 +314,30 @@ export default {
     // Sprawdza czy użytkownik może edytować post
     canEditPost(post) {
       if (!this.user) return false;
-      // Administrator lub moderator
-      if (this.user.role_id === 1 || this.user.role_id === 2) return true;
-      // Właściciel posta
-      return post.author_id === this.user.id;
+      
+      // Administrator lub moderator może edytować nawet w zamkniętych wątkach
+      if (this.isModerator) return true;
+      
+      // W zwykłych wątkach właściciel posta może edytować
+      if (!this.thread.is_closed && post.author_id === this.user.id) return true;
+      
+      return false;
     },
     
     // Sprawdza czy użytkownik może usunąć post
     canDeletePost(post) {
       if (!this.user) return false;
       // Tylko administrator lub moderator
-      return this.user.role_id === 1 || this.user.role_id === 2;
+      return this.isModerator;
     },
     
     // Rozpocznij edycję posta
     startEdit(post) {
+      if (this.thread.is_closed && !this.isModerator) {
+        this.$message.warning('Nie możesz edytować postów w zamkniętym wątku');
+        return;
+      }
+      
       post.editing = true;
       post.editContent = post.content;
     },
@@ -341,9 +415,29 @@ export default {
   border-bottom: 1px solid var(--el-border-color-light);
 }
 
+.thread-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .thread-header h1 {
   color: var(--text-primary);
-  margin-bottom: 10px;
+  margin: 0;
+}
+
+.thread-status-tags {
+  display: flex;
+  gap: 8px;
+}
+
+.status-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .thread-meta {
@@ -388,7 +482,7 @@ export default {
 }
 
 .post-sidebar {
-  width: 120px;
+  width: 140px;
   flex-shrink: 0;
   text-align: center;
   margin-right: 20px;
@@ -402,11 +496,12 @@ export default {
 .username {
   font-weight: 600;
   color: var(--text-primary);
+  margin-bottom: 5px;
 }
 
 .user-status {
   font-size: 12px;
-  margin-top: 5px;
+  margin-bottom: 5px;
 }
 
 .user-status.online {
@@ -421,6 +516,16 @@ export default {
   color: var(--text-secondary);
 }
 
+.user-posts {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 5px;
+}
+
 .post-content {
   flex: 1;
 }
@@ -430,7 +535,6 @@ export default {
   color: var(--text-primary);
   min-height: 50px;
 }
-
 
 .post-body :deep(*) {
   margin-bottom: 10px;
@@ -482,110 +586,6 @@ export default {
   font-size: 14px;
 }
 
-/* Etykiety językowe dla różnych typów kodu */
-.post-body :deep(pre.language-javascript)::before { content: 'javascript'; background: #f7df1e; color: #000; }
-.post-body :deep(pre.language-js)::before { content: 'javascript'; background: #f7df1e; color: #000; }
-.post-body :deep(pre.language-typescript)::before { content: 'typescript'; background: #3178c6; }
-.post-body :deep(pre.language-ts)::before { content: 'typescript'; background: #3178c6; }
-.post-body :deep(pre.language-html)::before { content: 'html'; background: #e34f26; }
-.post-body :deep(pre.language-css)::before { content: 'css'; background: #1572b6; }
-.post-body :deep(pre.language-python)::before { content: 'python'; background: #3776ab; }
-.post-body :deep(pre.language-py)::before { content: 'python'; background: #3776ab; }
-.post-body :deep(pre.language-java)::before { content: 'java'; background: #007396; }
-.post-body :deep(pre.language-php)::before { content: 'php'; background: #777bb4; }
-.post-body :deep(pre.language-ruby)::before { content: 'ruby'; background: #cc342d; }
-.post-body :deep(pre.language-rb)::before { content: 'ruby'; background: #cc342d; }
-.post-body :deep(pre.language-csharp)::before { content: 'c#'; background: #239120; }
-.post-body :deep(pre.language-cs)::before { content: 'c#'; background: #239120; }
-.post-body :deep(pre.language-cpp)::before { content: 'c++'; background: #00599c; }
-.post-body :deep(pre.language-c)::before { content: 'c'; background: #a8b9cc; color: #000; }
-.post-body :deep(pre.language-go)::before { content: 'go'; background: #00add8; }
-.post-body :deep(pre.language-rust)::before { content: 'rust'; background: #000000; }
-.post-body :deep(pre.language-swift)::before { content: 'swift'; background: #fa7343; }
-.post-body :deep(pre.language-kotlin)::before { content: 'kotlin'; background: #7f52ff; }
-.post-body :deep(pre.language-sql)::before { content: 'sql'; background: #336791; }
-.post-body :deep(pre.language-bash)::before { content: 'bash'; background: #4eaa25; }
-.post-body :deep(pre.language-shell)::before { content: 'shell'; background: #4eaa25; }
-.post-body :deep(pre.language-sh)::before { content: 'shell'; background: #4eaa25; }
-.post-body :deep(pre.language-yaml)::before { content: 'yaml'; background: #cb171e; }
-.post-body :deep(pre.language-yml)::before { content: 'yaml'; background: #cb171e; }
-.post-body :deep(pre.language-json)::before { content: 'json'; background: #000000; }
-.post-body :deep(pre.language-xml)::before { content: 'xml'; background: #f36b3c; }
-.post-body :deep(pre.language-markdown)::before { content: 'markdown'; background: #000000; }
-.post-body :deep(pre.language-md)::before { content: 'markdown'; background: #000000; }
-
-/* Kompleksowe kolorowanie składni w stylu VS Code */
-.post-body :deep(.hljs) {
-  display: block;
-  overflow-x: auto;
-  color: #d4d4d4;
-}
-
-.post-body :deep(.hljs-keyword) { color: #569cd6; font-style: italic; }
-.post-body :deep(.hljs-built_in) { color: #4ec9b0; }
-.post-body :deep(.hljs-type) { color: #4ec9b0; }
-.post-body :deep(.hljs-literal) { color: #569cd6; }
-.post-body :deep(.hljs-number) { color: #b5cea8; }
-.post-body :deep(.hljs-string) { color: #ce9178; }
-.post-body :deep(.hljs-doctag) { color: #ce9178; }
-.post-body :deep(.hljs-comment) { color: #6a9955; font-style: italic; }
-.post-body :deep(.hljs-title) { color: #dcdcaa; }
-.post-body :deep(.hljs-params) { color: #9cdcfe; }
-.post-body :deep(.hljs-function) { color: #dcdcaa; }
-.post-body :deep(.hljs-class) { color: #4ec9b0; }
-.post-body :deep(.hljs-meta) { color: #9cdcfe; }
-.post-body :deep(.hljs-section) { color: #dcdcaa; }
-.post-body :deep(.hljs-variable) { color: #9cdcfe; }
-.post-body :deep(.hljs-name) { color: #569cd6; }
-.post-body :deep(.hljs-tag) { color: #569cd6; }
-.post-body :deep(.hljs-attr) { color: #9cdcfe; }
-.post-body :deep(.hljs-attribute) { color: #9cdcfe; }
-.post-body :deep(.hljs-bullet) { color: #d7ba7d; }
-.post-body :deep(.hljs-code) { color: #b5cea8; }
-.post-body :deep(.hljs-emphasis) { color: #ce9178; font-style: italic; }
-.post-body :deep(.hljs-strong) { color: #ce9178; font-weight: bold; }
-.post-body :deep(.hljs-formula) { color: #d7ba7d; }
-.post-body :deep(.hljs-link) { color: #9cdcfe; }
-.post-body :deep(.hljs-quote) { color: #6a9955; font-style: italic; }
-.post-body :deep(.hljs-selector-tag) { color: #569cd6; }
-.post-body :deep(.hljs-selector-id) { color: #569cd6; }
-.post-body :deep(.hljs-selector-class) { color: #569cd6; }
-.post-body :deep(.hljs-selector-attr) { color: #9cdcfe; }
-.post-body :deep(.hljs-selector-pseudo) { color: #569cd6; }
-.post-body :deep(.hljs-template-tag) { color: #ce9178; }
-.post-body :deep(.hljs-template-variable) { color: #9cdcfe; }
-.post-body :deep(.hljs-addition) { background: #144212; color: #b5cea8; display: inline-block; width: 100%; }
-.post-body :deep(.hljs-deletion) { background: #600; color: #ce9178; display: inline-block; width: 100%; }
-
-/* Specyficzne style dla JSON */
-.post-body :deep(.language-json .hljs-attr) { color: #9cdcfe; }
-.post-body :deep(.language-json .hljs-string) { color: #ce9178; }
-.post-body :deep(.language-json .hljs-number) { color: #b5cea8; }
-.post-body :deep(.language-json .hljs-literal) { color: #569cd6; }
-
-/* Specyficzne style dla JavaScript/TypeScript */
-.post-body :deep(.language-javascript .hljs-function),
-.post-body :deep(.language-typescript .hljs-function) { color: #dcdcaa; }
-.post-body :deep(.language-javascript .hljs-title),
-.post-body :deep(.language-typescript .hljs-title) { color: #dcdcaa; }
-
-/* Specyficzne style dla HTML/XML */
-.post-body :deep(.language-html .hljs-tag),
-.post-body :deep(.language-xml .hljs-tag) { color: #569cd6; }
-.post-body :deep(.language-html .hljs-name),
-.post-body :deep(.language-xml .hljs-name) { color: #569cd6; }
-.post-body :deep(.language-html .hljs-attr),
-.post-body :deep(.language-xml .hljs-attr) { color: #9cdcfe; }
-.post-body :deep(.language-html .hljs-string),
-.post-body :deep(.language-xml .hljs-string) { color: #ce9178; }
-
-/* Specyficzne style dla CSS */
-.post-body :deep(.language-css .hljs-selector-class) { color: #d7ba7d; }
-.post-body :deep(.language-css .hljs-selector-tag) { color: #569cd6; }
-.post-body :deep(.language-css .hljs-attribute) { color: #9cdcfe; }
-.post-body :deep(.language-css .hljs-number) { color: #b5cea8; }
-.post-body :deep(.language-css .hljs-string) { color: #ce9178; }
-
 .post-body :deep(blockquote) {
   border-left: 4px solid var(--el-color-primary);
   padding-left: 12px;
@@ -612,7 +612,6 @@ export default {
 .post-body :deep(th) {
   background-color: var(--el-fill-color-light);
 }
-
 
 .edit-container {
   margin-bottom: 15px;
@@ -655,18 +654,23 @@ export default {
   gap: 4px;
   padding: 5px 8px;
   border-radius: 4px;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
 }
 
-.action-btn:hover {
+.action-btn:hover:not(:disabled) {
   background-color: var(--el-fill-color-light);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .action-btn.delete-btn {
   color: var(--el-color-danger);
 }
 
-.action-btn.delete-btn:hover {
+.action-btn.delete-btn:hover:not(:disabled) {
   background-color: var(--el-color-danger-light-9);
 }
 
@@ -724,13 +728,65 @@ export default {
 /* Dla ciemnego motywu */
 @media (prefers-color-scheme: dark) {
   .post-even {
-        background-color: var(--post-bg-even-dark, #f7f7f773);
-        border-color: var(--post-border-even-dark, #e9e8e8);
+    background-color: var(--post-bg-even-dark, #2d3748);
+    border-color: var(--post-border-even-dark, #4a5568);
   }
   
   .post-odd {
-        background-color: var(--post-bg-odd-dark, #d9d9d92e);
-        border-color: var(--post-border-even-dark, #dde2eb);
+    background-color: var(--post-bg-odd-dark, #1a202c);
+    border-color: var(--post-border-odd-dark, #4a5568);
+  }
+  
+  .preview-container {
+    background: #2d3748;
+    border-color: #4a5568;
+  }
+}
+
+/* Responsywność */
+@media (max-width: 768px) {
+  .thread-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .thread-meta {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .post {
+    flex-direction: column;
+    padding: 15px;
+  }
+  
+  .post-sidebar {
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 15px;
+    border-right: none;
+    border-bottom: 2px solid #e9e9ef;
+    padding-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+  }
+  
+  .user-info {
+    margin-top: 0;
+    text-align: left;
+  }
+  
+  .post-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .post-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 </style>
