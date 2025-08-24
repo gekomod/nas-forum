@@ -35,8 +35,6 @@
           </el-menu-item>
         </el-menu>
       </div>
-
-      <ForumStats v-if="currentView === 'categories'" :stats="stats" />
       
       <div class="forum-content">
         <CategoriesList 
@@ -44,11 +42,6 @@
           :categories="categories"
           :current-user="currentUser"
           @select-category="selectCategory"
-        />
-        
-        <ActiveThreads 
-          v-if="currentView === 'categories'"
-          :threads="activeThreads"
         />
                 
         <CategoryPage 
@@ -76,9 +69,9 @@
           :is-admin="isAdmin"
         />
         
-              <PageUsers 
-        v-if="currentView !== 'categories'"
-      />
+        <PageUsers v-if="currentView !== 'categories'"/>
+      
+      <ForumStats v-if="currentView === 'categories'" :stats="stats" />
       </div>
     </div>
 
@@ -251,7 +244,6 @@ export default {
         this.$message.error('Błąd: Nieprawidłowy wątek');
         return;
       }
-      
       this.selectedThread = thread;
       this.currentView = 'thread';
     },

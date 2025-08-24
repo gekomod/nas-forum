@@ -9,7 +9,7 @@
         {{ thread.author.charAt(0) }}
       </div>
       <div class="active-thread-content">
-        <a href="#" class="active-thread-title">{{ thread.title }}</a>
+        <a  class="active-thread-title" @click="selectThread(thread)">{{ thread.title }}</a>
         <div class="active-thread-info">
           <span>{{ thread.author }}</span>
           <span>{{ thread.date }}</span>
@@ -28,6 +28,26 @@ export default {
   },
   props: {
     threads: Array
+  },
+  methods: {
+    selectThread(thread) {
+      if (!thread) {
+        console.error('CategoryPage - BŁĄD: thread jest undefined/null');
+        return;
+      }
+      
+      if (!thread.id) {
+        console.error('CategoryPage - BŁĄD: thread nie ma ID:', thread);
+        return;
+      }
+      
+      try {
+        console.log(thread);
+        this.$emit('select-thread', thread);
+      } catch (error) {
+        console.error('CategoryPage - BŁĄD podczas emitowania:', error);
+      }
+    }
   }
 }
 </script>

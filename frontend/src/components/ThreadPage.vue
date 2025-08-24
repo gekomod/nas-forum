@@ -891,6 +891,24 @@ export default {
   font-style: italic;
 }
 
+  html.dark .post-even {
+    background-color: var(--post-bg-even-dark, #2d3748);
+    border-color: var(--post-border-even-dark, #4a5568);
+  }
+  
+  html.dark .post-odd {
+    background-color: var(--post-bg-odd-dark, #1a202c);
+    border-color: var(--post-border-odd-dark, #4a5568);
+  }
+  
+  html.dark .post-number-link {
+    background: var(--el-color-primary-dark-2);
+  }
+  
+  html.dark .post-number-link:hover {
+    background: var(--el-color-primary);
+  }
+
 /* Dla ciemnego motywu */
 @media (prefers-color-scheme: dark) {
   .post-body :deep(pre) {
@@ -902,15 +920,6 @@ export default {
     color: #e2e8f0;
   }
 
-  .post-even {
-    background-color: var(--post-bg-even-dark, #2d3748);
-    border-color: var(--post-border-even-dark, #4a5568);
-  }
-  
-  .post-odd {
-    background-color: var(--post-bg-odd-dark, #1a202c);
-    border-color: var(--post-border-odd-dark, #4a5568);
-  }
   
   .preview-container {
     background: #2d3748;
@@ -918,12 +927,11 @@ export default {
   }
   
   .post-number-link {
-    background: var(--el-color-primary-dark-2);
   }
   
   .post-number-link:hover {
-    background: var(--el-color-primary);
   }
+  
 }
 
 /* Responsywność */

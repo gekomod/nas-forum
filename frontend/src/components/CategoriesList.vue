@@ -90,17 +90,17 @@ export default {
   methods: {
     handleCategoryClick(category) {
       if (category.is_locked) {
-        // Sprawdź czy użytkownik ma uprawnienia do przeglądania zablokowanych kategorii
         if (this.currentUser && (this.currentUser.role_id === 1 || this.currentUser.role_id === 2)) {
-          // Administrator lub moderator - pozwól przeglądać
           this.$emit('select-category', category);
+          // Odśwież statystyki po wejściu do kategorii
+          this.$emit('refresh-categories');
         } else {
-          // Zwykły użytkownik - pokaż komunikat
           this.$message.warning('Ta kategoria jest tymczasowo zablokowana');
         }
       } else {
-        // Normalna kategoria
         this.$emit('select-category', category);
+        // Odśwież statystyki po wejściu do kategorii
+        this.$emit('refresh-categories');
       }
     },
     
@@ -118,6 +118,14 @@ export default {
         5: 'VIP'
       };
       return roles[roleId] || `Rola ${roleId}`;
+    }
+  },
+  watch: {
+    categories: {
+      immediate: true,
+      handler(newVal) {
+        //console.log('Kategorie zostały zaktualizowane', newVal);
+      }
     }
   }
 }
