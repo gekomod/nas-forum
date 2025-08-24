@@ -1107,6 +1107,93 @@ app.delete('/api/admin/posts/:id', authenticateToken, requirePermission('manage_
   });
 });
 
+// Globalny obiekt do śledzenia aktywności
+const activeUsers = new Map();
+const activeSessions = new Map();
+const activeGuests = new Map();
+
+// Middleware do śledzenia aktywności
+app.use((req, res, next) => {
+  if (req.headers.authorization) {
+    const token = req.headers.authorization.split(' ')[1];
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+        
+        activeSessions.set(decoded.id, {
+          userId: decoded.id,
+          username: decoded.username,
+          lastActivity: Date.now(),
+          type: 'user'
+        });
+      } catch (error) {
+        // Token nieprawidłowy - traktuj jako gościa
+        const guestId = req.ip + req.get('User-Agent');
+        activeSessions.set(guestId, {
+          guestId: guestId,
+          lastActivity: Date.now(),
+          type: 'guest'
+        });
+      }
+    } else {
+      // Brak tokenu - gość
+      const guestId = req.ip + req.get('User-Agent');
+      activeSessions.set(guestId, {
+        guestId: guestId,
+        lastActivity: Date.now(),
+        type: 'guest'
+      });
+    }
+  } else {
+    // Brak autoryzacji - gość
+    const guestId = req.ip + req.get('User-Agent');
+    activeSessions.set(guestId, {
+      guestId: guestId,
+      lastActivity: Date.now(),
+      type: 'guest'
+    });
+  }
+  
+  // Czyść nieaktywne sesje (15 minut bez aktywności)
+  const now = Date.now();
+  const inactiveTime = 15 * 60 * 1000;
+  
+  for (const [sessionId, session] of activeSessions.entries()) {
+    if (now - session.lastActivity > inactiveTime) {
+      activeSessions.delete(sessionId);
+    }
+  }
+  
+  next();
+});
+// Poprawiony endpoint online users
+app.get('/api/online-users', (req, res) => {
+  let onlineUsers = 0;
+  let onlineGuests = 0;
+  const usersList = [];
+
+  for (const session of activeSessions.values()) {
+    if (session.type === 'user') {
+      onlineUsers++;
+      usersList.push({
+        id: session.userId,
+        username: session.username
+      });
+    } else if (session.type === 'guest') {
+      onlineGuests++;
+    }
+  }
+
+  res.json({
+    online_users: onlineUsers,
+    online_guests: onlineGuests,
+    total_online: onlineUsers + onlineGuests,
+    users: usersList
+  });
+});
+
+
 function getUserStatus(lastLogin, isCurrentUser = false) {
   if (!lastLogin) return 'offline';
   

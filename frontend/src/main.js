@@ -49,6 +49,14 @@ VueMarkdownEditor.use(vuepressTheme, {
 const app = createApp(App)
 app.use(ElementPlus)
 app.use(VueMarkdownEditor)
+app.directive('tooltip', {
+  mounted(el, binding) {
+    el.setAttribute('title', binding.value);
+  },
+  updated(el, binding) {
+    el.setAttribute('title', binding.value);
+  }
+});
 app.mount('#app')
 
 // Dodaj globalny komponent Iconify

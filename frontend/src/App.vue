@@ -342,14 +342,15 @@ async loadCategories() {
         console.error('Error loading category threads:', error)
       }
     },
-    async loadStats() {
-      try {
-        const response = await axios.get('/stats')
-        this.stats = response.data
-      } catch (error) {
-        console.error('Error loading stats:', error)
-      }
-    },
+async loadStats() {
+  try {
+    const response = await axios.get('/stats');
+    this.stats = response.data;
+    this.$emit('stats-updated', this.stats);
+  } catch (error) {
+    console.error('Error loading stats:', error);
+  }
+},
 
     showAuthModal(isLogin) {
       this.authModalIsLogin = isLogin;
