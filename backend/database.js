@@ -54,6 +54,7 @@ function initDatabase() {
       last_post_author TEXT,
       last_post_time TEXT,
       is_locked BOOLEAN DEFAULT 0,
+      position INTEGER DEFAULT 0,
       required_role INTEGER DEFAULT NULL
     )`);
 

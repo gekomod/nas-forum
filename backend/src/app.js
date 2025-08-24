@@ -732,38 +732,47 @@ app.get('/api/admin/categories/:id', authenticateToken, requirePermission('manag
 
 // Zarządzanie kategoriami - tworzenie
 app.post('/api/admin/categories', authenticateToken, requirePermission('manage_categories'), (req, res) => {
-  const { name, icon, description, is_locked = false, required_role = 0 } = req.body;
+  const { name, icon, description, is_locked = false, required_role = 0, position } = req.body;
 
   // Konwertuj 0 na null dla bazy danych
   const dbRequiredRole = required_role === 0 ? null : required_role;
 
-  db.run(
-    'INSERT INTO categories (name, icon, description, is_locked, required_role) VALUES (?, ?, ?, ?, ?)',
-    [name, icon, description, is_locked, dbRequiredRole],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      
-      res.status(201).json({ 
-        message: 'Kategoria została utworzona',
-        id: this.lastID 
-      });
+  // Znajdź najwyższą pozycję
+  db.get('SELECT MAX(position) as max_position FROM categories', (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
     }
-  );
+    
+    const newPosition = position !== undefined ? position : (row.max_position || 0) + 1;
+    
+    db.run(
+      'INSERT INTO categories (name, icon, description, is_locked, required_role, position) VALUES (?, ?, ?, ?, ?, ?)',
+      [name, icon, description, is_locked, dbRequiredRole, newPosition],
+      function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        res.status(201).json({ 
+          message: 'Kategoria została utworzona',
+          id: this.lastID 
+        });
+      }
+    );
+  });
 });
 
 // Zarządzanie kategoriami - edycja
 app.put('/api/admin/categories/:id', authenticateToken, requirePermission('manage_categories'), (req, res) => {
   const categoryId = req.params.id;
-  const { name, icon, description, is_locked, required_role = 0 } = req.body;
+  const { name, icon, description, is_locked, required_role = 0, position } = req.body;
 
   // Konwertuj 0 na null dla bazy danych
   const dbRequiredRole = required_role === 0 ? null : required_role;
 
   db.run(
-    'UPDATE categories SET name = ?, icon = ?, description = ?, is_locked = ?, required_role = ? WHERE id = ?',
-    [name, icon, description, is_locked, dbRequiredRole, categoryId],
+    'UPDATE categories SET name = ?, icon = ?, description = ?, is_locked = ?, required_role = ?, position = ? WHERE id = ?',
+    [name, icon, description, is_locked, dbRequiredRole, position, categoryId],
     function(err) {
       if (err) {
         return res.status(500).json({ error: err.message });
@@ -776,6 +785,59 @@ app.put('/api/admin/categories/:id', authenticateToken, requirePermission('manag
       res.json({ message: 'Kategoria została zaktualizowana' });
     }
   );
+});
+
+// Endpoint do zmiany kolejności
+app.post('/api/admin/categories/:id/move', authenticateToken, requirePermission('manage_categories'), (req, res) => {
+  const categoryId = req.params.id;
+  const { direction } = req.body; // 'up' or 'down'
+
+  db.get('SELECT position FROM categories WHERE id = ?', [categoryId], (err, category) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!category) {
+      return res.status(404).json({ error: 'Kategoria nie istnieje' });
+    }
+
+    const currentPos = category.position;
+    let newPos;
+    
+    if (direction === 'up') {
+      newPos = currentPos - 1;
+    } else if (direction === 'down') {
+      newPos = currentPos + 1;
+    } else {
+      return res.status(400).json({ error: 'Nieprawidłowy kierunek' });
+    }
+
+    // Sprawdź czy nowa pozycja jest dostępna
+    db.get('SELECT id FROM categories WHERE position = ?', [newPos], (err, targetCategory) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (!targetCategory) {
+        return res.status(400).json({ error: 'Nie można przesunąć kategorii' });
+      }
+
+      // Zamień pozycje
+      db.run('UPDATE categories SET position = ? WHERE id = ?', [newPos, categoryId], (err) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        db.run('UPDATE categories SET position = ? WHERE id = ?', [currentPos, targetCategory.id], (err) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          res.json({ message: 'Kolejność kategorii została zmieniona' });
+        });
+      });
+    });
+  });
 });
 
 // Zarządzanie kategoriami - usuwanie

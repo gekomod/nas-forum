@@ -62,13 +62,37 @@
         </el-button>
       </el-empty>
 
-      <!-- Categories Table -->
-      <el-table 
-        :data="categories" 
-        v-loading="loading" 
-        style="width: 100%"
-        v-else
-      >
+    <!-- Categories Table -->
+    <el-table 
+      :data="sortedCategories" 
+      v-loading="loading" 
+      style="width: 100%"
+      v-else
+    >
+      <el-table-column label="Pozycja" width="100">
+        <template #default="scope">
+          <div class="position-controls">
+            <el-button 
+              size="small" 
+              :disabled="scope.$index === 0"
+              @click="moveCategory(scope.row.id, 'up')"
+              title="Przesuń wyżej"
+            >
+              <Icon icon="mdi:arrow-up" />
+            </el-button>
+            <span class="position-number">{{ scope.row.position }}</span>
+            <el-button 
+              size="small" 
+              :disabled="scope.$index === categories.length - 1"
+              @click="moveCategory(scope.row.id, 'down')"
+              title="Przesuń niżej"
+            >
+              <Icon icon="mdi:arrow-down" />
+            </el-button>
+          </div>
+        </template>
+      </el-table-column>
+
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column label="Ikona" width="80">
           <template #default="scope">
@@ -164,6 +188,18 @@
           <div class="icon-preview">
             <Icon :icon="form.icon || 'mdi:folder'" />
             <span class="preview-text">Podgląd: {{ form.icon || 'mdi:folder' }}</span>
+          </div>
+        </el-form-item>
+        
+        <el-form-item label="Pozycja" prop="position">
+          <el-input-number 
+            v-model="form.position" 
+            :min="1" 
+            :max="maxPosition + 1"
+            controls-position="right"
+          />
+          <div class="help-text">
+            Niższa liczba = wyższa pozycja na liście
           </div>
         </el-form-item>
         
@@ -289,6 +325,12 @@ export default {
     };
   },
   computed: {
+    sortedCategories() {
+      return [...this.categories].sort((a, b) => a.position - b.position);
+    },
+    maxPosition() {
+      return Math.max(...this.categories.map(cat => cat.position || 0), 0);
+    },
     lockedCategories() {
       return this.categories.filter(cat => cat.is_locked).length;
     },
@@ -358,16 +400,28 @@ export default {
       this.resetForm();
       this.showModal = true;
     },
+    
+    async moveCategory(categoryId, direction) {
+      try {
+        await axios.post(`/admin/categories/${categoryId}/move`, { direction });
+        this.$message.success('Kolejność kategorii została zmieniona');
+        await this.loadCategories();
+      } catch (error) {
+        console.error('Move category error:', error);
+        this.$message.error(error.response?.data?.error || 'Błąd podczas zmiany kolejności');
+      }
+    },
 
-	editCategory(category) {
-	  this.isEditing = true;
-	  this.form = { 
-	    ...category,
-	    is_locked: Boolean(category.is_locked),
-	    required_role: category.required_role || 0 // Zmiana z null na 0
-	  };
-	  this.showModal = true;
-	},
+    editCategory(category) {
+      this.isEditing = true;
+      this.form = { 
+        ...category,
+        is_locked: Boolean(category.is_locked),
+        required_role: category.required_role || 0,
+        position: category.position || this.maxPosition + 1
+      };
+      this.showModal = true;
+    },
 
     resetForm() {
       this.form = {
@@ -376,7 +430,8 @@ export default {
         icon: 'mdi:folder',
         description: '',
         is_locked: false,
-        required_role: 0
+        required_role: 0,
+        position: this.maxPosition + 1
       };
       if (this.$refs.categoryForm) {
         this.$refs.categoryForm.resetFields();
@@ -404,7 +459,8 @@ export default {
               icon: this.form.icon,
               description: this.form.description,
               is_locked: this.form.is_locked,
-              required_role: this.form.required_role
+              required_role: this.form.required_role,
+              position: this.form.position
             };
             
             await axios[method](endpoint, payload);
@@ -645,5 +701,29 @@ export default {
   margin-top: 5px;
   text-align: center;
   word-break: break-all;
+}
+
+.position-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.position-number {
+  font-weight: bold;
+  min-width: 30px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .position-controls {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .position-number {
+    margin: 4px 0;
+  }
 }
 </style>

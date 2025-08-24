@@ -5,7 +5,7 @@
       Kategorie Forum
     </h2>
     <ul class="category-list">
-      <li v-for="category in categories" :key="category.id" class="category-item" :class="{ locked: category.is_locked }">
+      <li v-for="category in sortedCategories" :key="category.id" class="category-item" :class="{ locked: category.is_locked }">
         <div class="category-icon">
           <Icon :icon="category.icon" />
           <div class="lock-indicator" v-if="category.is_locked">
@@ -72,6 +72,20 @@ export default {
   props: {
     categories: Array,
     currentUser: Object
+  },
+  computed: {
+    sortedCategories() {
+      return [...this.categories].sort((a, b) => {
+        // Sortuj najpierw po pozycji, potem po nazwie
+        const posA = a.position || 999;
+        const posB = b.position || 999;
+        
+        if (posA !== posB) {
+          return posA - posB;
+        }
+        return a.name.localeCompare(b.name);
+      });
+    }
   },
   methods: {
     handleCategoryClick(category) {
