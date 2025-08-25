@@ -3,6 +3,22 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
+const PERMISSIONS = {
+  manage_users: ['Administrator'],
+  manage_categories: ['Administrator'],
+  manage_threads: ['Administrator', 'Moderator'],
+  manage_posts: ['Administrator', 'Moderator'],
+  delete_any_content: ['Administrator', 'Moderator'],
+  assign_roles: ['Administrator'],
+  create_threads: ['Administrator', 'Moderator', 'Użytkownik', 'VIP', 'Redaktor'],
+  create_posts: ['Administrator', 'Moderator', 'Użytkownik', 'VIP', 'Redaktor'],
+  edit_own_content: ['Administrator', 'Moderator', 'Użytkownik', 'VIP', 'Redaktor'],
+  delete_own_content: ['Administrator', 'Moderator', 'Użytkownik', 'VIP', 'Redaktor'],
+  // Nowe uprawnienia dla powiadomień
+  manage_notifications: ['Administrator', 'Moderator', 'Użytkownik', 'VIP', 'Redaktor'],
+  subscribe_threads: ['Administrator', 'Moderator', 'Użytkownik', 'VIP', 'Redaktor']
+};
+
 // Middleware do weryfikacji JWT tokena
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];

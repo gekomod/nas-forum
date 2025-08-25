@@ -25,6 +25,17 @@
             <Icon icon="mdi:lock" />
             Zamknięty
           </el-tag>
+          <el-button 
+            v-if="user" 
+            size="small" 
+            :type="isWatching ? 'success' : 'default'" 
+            :loading="watchingLoading"
+            @click="toggleWatchThread"
+            class="watch-btn"
+          >
+            <Icon :icon="isWatching ? 'mdi:bell' : 'mdi:bell-outline'" />
+            {{ isWatching ? 'Obserwowany' : 'Obserwuj' }}
+          </el-button>
         </div>
       </div>
       <div class="thread-meta">
@@ -222,7 +233,9 @@ export default {
       posts: [],
       replyContent: '',
       submitting: false,
-      previewMode: false
+      previewMode: false,
+      isWatching: false,
+      watchingLoading: false
     };
   },
   computed: {
@@ -249,6 +262,7 @@ export default {
   },
   mounted() {
     this.loadThread();
+    this.checkWatchStatus();
   },
   methods: {
     async loadThread() {
@@ -495,7 +509,47 @@ export default {
     const diffMonths = Math.floor(diffDays / 30);
     if (diffMonths === 1) return '1 miesiąc';
     return `${diffMonths} miesięcy`;
-  }
+  },
+  
+    async checkWatchStatus() {
+      if (!this.user) return;
+      
+      try {
+        const response = await axios.get(`/thread/${this.threadData.id}/watch-status`);
+        this.isWatching = response.data.watching;
+      } catch (error) {
+        console.error('Error checking watch status:', error);
+      }
+    },
+    
+    // Przełącz obserwację wątku
+    async toggleWatchThread() {
+      if (!this.user) {
+        this.$message.warning('Musisz być zalogowany, aby obserwować wątki');
+        return;
+      }
+      
+      this.watchingLoading = true;
+      try {
+        const endpoint = `/thread/${this.threadData.id}/watch`;
+        const method = this.isWatching ? 'delete' : 'post';
+        
+        await axios[method](endpoint);
+        this.isWatching = !this.isWatching;
+        
+        this.$message.success(
+          this.isWatching 
+            ? 'Rozpoczęto obserwowanie wątku. Będziesz otrzymywać powiadomienia o nowych odpowiedziach.' 
+            : 'Zaprzestano obserwowania wątku.'
+        );
+      } catch (error) {
+        console.error('Error toggling watch:', error);
+        this.$message.error('Błąd podczas zmiany statusu obserwacji');
+      } finally {
+        this.watchingLoading = false;
+      }
+    }
+  
   }
 }
 </script>
@@ -554,6 +608,13 @@ export default {
 
 .posts-container {
   margin-bottom: 30px;
+}
+
+.watch-btn {
+  margin-left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .post {

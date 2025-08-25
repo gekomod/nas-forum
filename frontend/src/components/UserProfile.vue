@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" title="Profil użytkownika" width="500px">
+  <el-dialog v-model="visible" title="Profil użytkownika" width="700px">
     <div v-if="user" class="profile-content">
       <div class="profile-header">
         <div class="avatar-container">
@@ -62,6 +62,49 @@
             </el-form-item>
           </el-form>
         </el-tab-pane>
+        
+        <el-tab-pane label="Powiadomienia" name="notifications">
+          <el-form :model="notificationForm" label-width="200px">
+            <el-form-item label="Powiadomienia email">
+              <el-switch 
+                v-model="notificationForm.email_notifications" 
+                :active-value="1" 
+                :inactive-value="0">
+              </el-switch>
+            </el-form-item>
+            <el-form-item label="Powiadomienia push">
+              <el-switch 
+                v-model="notificationForm.push_notifications" 
+                :active-value="1" 
+                :inactive-value="0">
+              </el-switch>
+            </el-form-item>
+            <el-form-item label="Powiadomienia o odpowiedziach">
+              <el-switch 
+                v-model="notificationForm.notify_on_reply" 
+                :active-value="1" 
+                :inactive-value="0">
+              </el-switch>
+            </el-form-item>
+            <el-form-item label="Powiadomienia o wzmiankach">
+              <el-switch 
+                v-model="notificationForm.notify_on_mention" 
+                :active-value="1" 
+                :inactive-value="0">
+              </el-switch>
+            </el-form-item>
+            <el-form-item label="Powiadomienia o aktualizacjach wątków">
+              <el-switch 
+                v-model="notificationForm.notify_on_thread_update" 
+                :active-value="1" 
+                :inactive-value="0">
+              </el-switch>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="updateNotificationSettings">Zapisz ustawienia</el-button>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
       </el-tabs>
     </div>
   </el-dialog>
@@ -97,6 +140,13 @@ export default {
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
+      },
+      notificationForm: {
+        email_notifications: 0,
+        push_notifications: 0,
+        notify_on_reply: 0,
+        notify_on_mention: 0,
+        notify_on_thread_update: 0
       },
       passwordRules: {
         currentPassword: [
@@ -142,16 +192,47 @@ export default {
       if (newVal && this.user) {
         this.editForm.email = this.user.email;
         this.editForm.signature = this.user.signature;
+        
+        // Załaduj ustawienia powiadomień, jeśli dostępne
+        this.loadNotificationSettings();
       }
     },
     user(newUser) {
       if (newUser) {
         this.editForm.email = newUser.email;
         this.editForm.signature = newUser.signature;
+        
+        // Załaduj ustawienia powiadomień, jeśli dostępne
+        this.loadNotificationSettings();
       }
     }
   },
   methods: {
+    async loadNotificationSettings() {
+      try {
+        const response = await axios.get('/notification-settings');
+        if (response.data) {
+          // Ustaw wartości z bazy danych lub domyślne 0
+          this.notificationForm = {
+            email_notifications: response.data.email_notifications || 0,
+            push_notifications: response.data.push_notifications || 0,
+            notify_on_reply: response.data.notify_on_reply || 0,
+            notify_on_mention: response.data.notify_on_mention || 0,
+            notify_on_thread_update: response.data.notify_on_thread_update || 0
+          };
+        }
+      } catch (error) {
+        console.error('Błąd ładowania ustawień powiadomień:', error);
+        // W przypadku błędu ustaw domyślne wartości
+        this.notificationForm = {
+          email_notifications: 0,
+          push_notifications: 0,
+          notify_on_reply: 0,
+          notify_on_mention: 0,
+          notify_on_thread_update: 0
+        };
+      }
+    },
     getUserStatus(lastLogin, isCurrentUser) {
       if (!lastLogin) return 'offline';
       
@@ -179,7 +260,7 @@ export default {
     },
     async updateProfile() {
       try {
-        await axios.put('/api/profile', this.editForm);
+        await axios.put('/profile', this.editForm);
         this.$message.success('Profil zaktualizowany pomyślnie');
         this.$emit('profile-updated');
       } catch (error) {
@@ -190,7 +271,7 @@ export default {
       this.$refs.passwordForm.validate(async (valid) => {
         if (valid) {
           try {
-            await axios.put('/api/change-password', this.passwordForm);
+            await axios.put('/change-password', this.passwordForm);
             this.$message.success('Hasło zostało zmienione');
             this.passwordForm = {
               currentPassword: '',
@@ -202,6 +283,25 @@ export default {
           }
         }
       });
+    },
+    async updateNotificationSettings() {
+      try {
+        // Konwersja wartości na liczby (dla bezpieczeństwa)
+        const payload = {
+          email_notifications: Number(this.notificationForm.email_notifications),
+          push_notifications: Number(this.notificationForm.push_notifications),
+          notify_on_reply: Number(this.notificationForm.notify_on_reply),
+          notify_on_mention: Number(this.notificationForm.notify_on_mention),
+          notify_on_thread_update: Number(this.notificationForm.notify_on_thread_update)
+        };
+        
+        await axios.put('/notification-settings', payload);
+        this.$message.success('Ustawienia powiadomień zostały zaktualizowane');
+        this.$emit('profile-updated');
+      } catch (error) {
+        console.error('Błąd zapisu ustawień:', error);
+        this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas zapisywania ustawień');
+      }
     },
     handleAvatarSuccess(response) {
       if (response.success) {

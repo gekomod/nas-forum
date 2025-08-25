@@ -40,7 +40,47 @@ function initDatabase() {
       signature TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       last_login DATETIME,
+      notification_settings TEXT DEFAULT '{"email_notifications": true, "push_notifications": true}',
       FOREIGN KEY (role_id) REFERENCES roles (id)
+    )`);
+    
+    db.run(`CREATE TABLE IF NOT EXISTS thread_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      thread_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id),
+      FOREIGN KEY (thread_id) REFERENCES threads (id),
+      UNIQUE(user_id, thread_id)
+    )`);
+    
+    db.run(`CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL, -- 'new_reply', 'thread_update', 'mention', 'system'
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      related_thread_id INTEGER,
+      related_post_id INTEGER,
+      related_user_id INTEGER,
+      is_read BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id),
+      FOREIGN KEY (related_thread_id) REFERENCES threads (id),
+      FOREIGN KEY (related_post_id) REFERENCES posts (id),
+      FOREIGN KEY (related_user_id) REFERENCES users (id)
+    )`);
+    
+    db.run(`CREATE TABLE IF NOT EXISTS user_notification_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      email_notifications BOOLEAN DEFAULT 1,
+      push_notifications BOOLEAN DEFAULT 1,
+      notify_on_reply BOOLEAN DEFAULT 1,
+      notify_on_mention BOOLEAN DEFAULT 1,
+      notify_on_thread_update BOOLEAN DEFAULT 1,
+      FOREIGN KEY (user_id) REFERENCES users (id),
+      UNIQUE(user_id)
     )`);
 
     // 3. Teraz tworzymy pozostałe tabele
@@ -83,6 +123,7 @@ function initDatabase() {
       author TEXT NOT NULL,
       content TEXT,
       date TEXT,
+      edited_at DATETIME,
       FOREIGN KEY (thread_id) REFERENCES threads (id),
       FOREIGN KEY (user_id) REFERENCES users (id)
     )`);

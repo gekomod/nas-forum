@@ -15,6 +15,8 @@
         @show-profile="showProfileModal = true"
         @show-admin-panel="currentView = 'admin-panel'"
         @show-categories="showCategoryModal = true"
+        @show-notifications="currentView = 'notifications'"
+        @view-thread="handleViewThread"
         @logout="handleLogout"
       />
       
@@ -68,6 +70,8 @@
           v-if="currentView === 'admin-panel'" 
           :is-admin="isAdmin"
         />
+        
+        <NotificationsPage v-if="currentView === 'notifications'" />
         
         <PageUsers v-if="currentView !== 'categories'"/>
       
@@ -126,6 +130,7 @@ import ThreadsManagement from './components/ThreadsManagement.vue'
 import PostsManagement from './components/PostsManagement.vue';
 import AdminPanel from './components/AdminPanel.vue';
 import PageUsers from './components/PageUsers.vue';
+import NotificationsPage from './components/NotificationsPage.vue';
 import { Icon } from "@iconify/vue";
 import axios from 'axios'
 
@@ -148,6 +153,7 @@ export default {
     PostsManagement,
     AdminPanel,
     PageUsers,
+    NotificationsPage,
     Icon
   },
   data() {
@@ -378,6 +384,19 @@ async loadStats() {
       } catch (error) {
         this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas usuwania wątku');
       }
+    },
+        handleViewThread(threadId) {
+      // Przełącz na widok wątku
+      // Najpierw pobierz dane wątku
+      axios.get(`/thread/${threadId}`)
+        .then(response => {
+          this.selectedThread = response.data.thread;
+          this.currentView = 'thread';
+        })
+        .catch(error => {
+          console.error('Error loading thread:', error);
+          this.$message.error('Błąd podczas ładowania wątku');
+        });
     },
     async updateUserActivity() {
       try {

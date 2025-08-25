@@ -533,7 +533,7 @@ app.post('/api/thread/:id/posts', authenticateToken, (req, res) => {
       FROM threads t 
       JOIN categories c ON t.category_id = c.id 
       WHERE t.id = ?
-    `, [threadId], (err, thread) => {
+    `, [threadId], async (err, thread) => {
       if (err || !thread) {
         return res.status(404).json({ error: 'Wątek nie istnieje' });
       }
@@ -546,10 +546,12 @@ app.post('/api/thread/:id/posts', authenticateToken, (req, res) => {
       db.run(
         'INSERT INTO posts (thread_id, user_id, author, content, date) VALUES (?, ?, ?, ?, ?)',
         [threadId, req.user.id, user.username, content, date],
-        function(err) {
+        async function(err) {
           if (err) {
             return res.status(500).json({ error: err.message });
           }
+          
+          const postId = this.lastID;
           
           // Zaktualizuj licznik odpowiedzi i ostatni post
           db.run(
@@ -563,8 +565,66 @@ app.post('/api/thread/:id/posts', authenticateToken, (req, res) => {
             [user.username, date, thread.category_id]
           );
           
+          // Wyślij powiadomienia do obserwujących wątek (oprócz autora)
+          if (thread.user_id !== req.user.id) {
+            try {
+              await notifyThreadSubscribers(threadId, postId, user.username, content);
+            } catch (error) {
+              console.error('Błąd podczas wysyłania powiadomień:', error);
+            }
+          }
+          
+          // Sprawdź czy w poście są wzmianki (@username)
+          const mentionRegex = /@([a-zA-Z0-9_]+)/g;
+          let match;
+          const mentionedUsers = new Set();
+          
+          while ((match = mentionRegex.exec(content)) !== null) {
+            mentionedUsers.add(match[1]);
+          }
+          
+          // Wyślij powiadomienia o wzmiankach
+          if (mentionedUsers.size > 0) {
+            try {
+              for (const username of mentionedUsers) {
+                // Znajdź użytkownika
+                db.get(
+                  'SELECT id FROM users WHERE username = ? AND id != ?',
+                  [username, req.user.id],
+                  async (err, mentionedUser) => {
+                    if (!err && mentionedUser) {
+                      // Sprawdź ustawienia powiadomień użytkownika
+                      db.get(
+                        'SELECT notify_on_mention FROM user_notification_settings WHERE user_id = ?',
+                        [mentionedUser.id],
+                        async (err, settings) => {
+                          if (!err && settings && settings.notify_on_mention) {
+                            const title = 'Wspomniano Cię w poście';
+                            const message = `Użytkownik <strong>${user.username}</strong> wspomniał Cię w poście w wątku "<strong>${thread.title}</strong>": ${content.substring(0, 100)}...`;
+                            
+                            await createNotification(
+                              mentionedUser.id,
+                              'mention',
+                              title,
+                              message,
+                              threadId,
+                              postId,
+                              req.user.id
+                            );
+                          }
+                        }
+                      );
+                    }
+                  }
+                );
+              }
+            } catch (error) {
+              console.error('Błąd podczas wysyłania powiadomień o wzmiankach:', error);
+            }
+          }
+          
           res.json({ 
-            id: this.lastID, 
+            id: postId, 
             message: 'Odpowiedź została dodana',
             author: user.username,
             date: date
@@ -574,6 +634,50 @@ app.post('/api/thread/:id/posts', authenticateToken, (req, res) => {
     });
   });
 });
+
+// Pobierz listę obserwowanych wątków
+app.get('/api/watched-threads', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const { limit = 20, page = 1 } = req.query;
+  const offset = (page - 1) * limit;
+
+  const query = `
+    SELECT t.*, 
+           c.name as category_name,
+           ts.created_at as subscribed_at,
+           (SELECT COUNT(*) FROM posts p WHERE p.thread_id = t.id) as total_posts
+    FROM thread_subscriptions ts
+    JOIN threads t ON ts.thread_id = t.id
+    JOIN categories c ON t.category_id = c.id
+    WHERE ts.user_id = ?
+    ORDER BY ts.created_at DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  const countQuery = 'SELECT COUNT(*) as total FROM thread_subscriptions WHERE user_id = ?';
+
+  // Pobierz całkowitą liczbę obserwowanych wątków
+  db.get(countQuery, [userId], (err, countResult) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    // Pobierz obserwowane wątki
+    db.all(query, [userId, parseInt(limit), offset], (err, threads) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      res.json({
+        items: threads,
+        total: countResult.total,
+        page: parseInt(page),
+        totalPages: Math.ceil(countResult.total / limit)
+      });
+    });
+  });
+});
+
 
 // Pobierz posty wątku - dostępny dla wszystkich
 app.get('/api/thread/:id/posts', (req, res) => {
@@ -1529,6 +1633,331 @@ app.get('/api/page-users', (req, res) => {
   
   res.json({ users: pageUsers });
 });
+
+// Sprawdź czy użytkownik obserwuje wątek
+app.get('/api/thread/:id/watch-status', authenticateToken, (req, res) => {
+  const threadId = req.params.id;
+  const userId = req.user.id;
+
+  db.get(
+    'SELECT id FROM thread_subscriptions WHERE user_id = ? AND thread_id = ?',
+    [userId, threadId],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ watching: !!row });
+    }
+  );
+});
+
+// Obserwuj wątek
+app.post('/api/thread/:id/watch', authenticateToken, (req, res) => {
+  const threadId = req.params.id;
+  const userId = req.user.id;
+
+  // Sprawdź czy wątek istnieje
+  db.get('SELECT id FROM threads WHERE id = ?', [threadId], (err, thread) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!thread) {
+      return res.status(404).json({ error: 'Wątek nie istnieje' });
+    }
+
+    // Dodaj subskrypcję
+    db.run(
+      'INSERT INTO thread_subscriptions (user_id, thread_id) VALUES (?, ?)',
+      [userId, threadId],
+      function(err) {
+        if (err) {
+          // Jeśli już obserwuje, to zwróć sukces
+          if (err.message.includes('UNIQUE constraint failed')) {
+            return res.json({ message: 'Już obserwujesz ten wątek' });
+          }
+          return res.status(500).json({ error: err.message });
+        }
+        
+        res.json({ message: 'Rozpoczęto obserwowanie wątku' });
+      }
+    );
+  });
+});
+
+// Przestań obserwować wątek
+app.delete('/api/thread/:id/watch', authenticateToken, (req, res) => {
+  const threadId = req.params.id;
+  const userId = req.user.id;
+
+  db.run(
+    'DELETE FROM thread_subscriptions WHERE user_id = ? AND thread_id = ?',
+    [userId, threadId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Nie obserwujesz tego wątku' });
+      }
+      
+      res.json({ message: 'Zaprzestano obserwowania wątku' });
+    }
+  );
+});
+
+// Pobierz powiadomienia użytkownika
+app.get('/api/notifications', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const { limit = 20, page = 1, unread_only = false } = req.query;
+  const offset = (page - 1) * limit;
+
+  let query = `
+    SELECT n.*, 
+           t.title as thread_title,
+           u.username as related_username
+    FROM notifications n
+    LEFT JOIN threads t ON n.related_thread_id = t.id
+    LEFT JOIN users u ON n.related_user_id = u.id
+    WHERE n.user_id = ?
+  `;
+  
+  let countQuery = 'SELECT COUNT(*) as total FROM notifications WHERE user_id = ?';
+  const params = [userId];
+  const countParams = [userId];
+
+  if (unread_only === 'true') {
+    query += ' AND n.is_read = 0';
+    countQuery += ' AND is_read = 0';
+  }
+
+  query += ' ORDER BY n.created_at DESC LIMIT ? OFFSET ?';
+  params.push(parseInt(limit), offset);
+
+  // Pobierz całkowitą liczbę powiadomień
+  db.get(countQuery, countParams, (err, countResult) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    // Pobierz powiadomienia
+    db.all(query, params, (err, notifications) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      res.json({
+        items: notifications,
+        total: countResult.total,
+        page: parseInt(page),
+        totalPages: Math.ceil(countResult.total / limit)
+      });
+    });
+  });
+});
+
+// Oznacz powiadomienie jako przeczytane
+app.put('/api/notifications/:id/read', authenticateToken, (req, res) => {
+  const notificationId = req.params.id;
+  const userId = req.user.id;
+
+  db.run(
+    'UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?',
+    [notificationId, userId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Powiadomienie nie istnieje' });
+      }
+      
+      res.json({ message: 'Powiadomienie oznaczone jako przeczytane' });
+    }
+  );
+});
+
+// Oznacz wszystkie powiadomienia jako przeczytane
+app.put('/api/notifications/mark-all-read', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+
+  db.run(
+    'UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0',
+    [userId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ 
+        message: 'Wszystkie powiadomienia oznaczone jako przeczytane',
+        marked: this.changes
+      });
+    }
+  );
+});
+
+// Usuń powiadomienie
+app.delete('/api/notifications/:id', authenticateToken, (req, res) => {
+  const notificationId = req.params.id;
+  const userId = req.user.id;
+
+  db.run(
+    'DELETE FROM notifications WHERE id = ? AND user_id = ?',
+    [notificationId, userId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Powiadomienie nie istnieje' });
+      }
+      
+      res.json({ message: 'Powiadomienie zostało usunięte' });
+    }
+  );
+});
+
+// Pobierz ustawienia powiadomień użytkownika
+app.get('/api/notification-settings', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+
+  db.get(
+    `SELECT * FROM user_notification_settings WHERE user_id = ?`,
+    [userId],
+    (err, settings) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Jeśli użytkownik nie ma jeszcze ustawień, utwórz domyślne
+      if (!settings) {
+        const defaultSettings = {
+          user_id: userId,
+          email_notifications: 1,
+          push_notifications: 1,
+          notify_on_reply: 1,
+          notify_on_mention: 1,
+          notify_on_thread_update: 1
+        };
+        
+        db.run(
+          `INSERT INTO user_notification_settings 
+           (user_id, email_notifications, push_notifications, notify_on_reply, notify_on_mention, notify_on_thread_update)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [userId, 1, 1, 1, 1, 1],
+          function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            res.json(defaultSettings);
+          }
+        );
+      } else {
+        res.json(settings);
+      }
+    }
+  );
+});
+
+// Zaktualizuj ustawienia powiadomień użytkownika
+app.put('/api/notification-settings', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const {
+    email_notifications,
+    push_notifications,
+    notify_on_reply,
+    notify_on_mention,
+    notify_on_thread_update
+  } = req.body;
+
+  db.run(
+    `INSERT OR REPLACE INTO user_notification_settings 
+     (user_id, email_notifications, push_notifications, notify_on_reply, notify_on_mention, notify_on_thread_update)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [userId, email_notifications, push_notifications, notify_on_reply, notify_on_mention, notify_on_thread_update],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ message: 'Ustawienia powiadomień zostały zaktualizowane' });
+    }
+  );
+});
+
+// Funkcja pomocnicza do tworzenia powiadomień
+function createNotification(userId, type, title, message, threadId = null, postId = null, relatedUserId = null) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO notifications 
+       (user_id, type, title, message, related_thread_id, related_post_id, related_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, type, title, message, threadId, postId, relatedUserId],
+      function(err) {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(this.lastID);
+        }
+      }
+    );
+  });
+}
+
+// Funkcja pomocnicza do wysyłania powiadomień o nowej odpowiedzi
+async function notifyThreadSubscribers(threadId, postId, replyAuthor, replyContent) {
+  try {
+    // Pobierz informacje o wątku
+    const thread = await new Promise((resolve, reject) => {
+      db.get('SELECT title, author FROM threads WHERE id = ?', [threadId], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    // Pobierz subskrybentów wątku (oprócz autora odpowiedzi)
+    const subscribers = await new Promise((resolve, reject) => {
+      db.all(
+        `SELECT DISTINCT ts.user_id, uns.notify_on_reply 
+         FROM thread_subscriptions ts
+         JOIN user_notification_settings uns ON ts.user_id = uns.user_id
+         WHERE ts.thread_id = ? AND ts.user_id != (
+           SELECT user_id FROM posts WHERE id = ?
+         ) AND uns.notify_on_reply = 1`,
+        [threadId, postId],
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows);
+        }
+      );
+    });
+
+    // Utwórz powiadomienia dla każdego subskrybenta
+    for (const subscriber of subscribers) {
+      const title = 'Nowa odpowiedź w obserwowanym wątku';
+      const message = `Użytkownik <strong>${replyAuthor}</strong> odpowiedział w wątku "<strong>${thread.title}</strong>": ${replyContent.substring(0, 100)}...`;
+      
+      await createNotification(
+        subscriber.user_id,
+        'new_reply',
+        title,
+        message,
+        threadId,
+        postId
+      );
+    }
+
+    console.log(`Wysłano powiadomienia do ${subscribers.length} subskrybentów wątku ${threadId}`);
+  } catch (error) {
+    console.error('Błąd podczas wysyłania powiadomień:', error);
+  }
+}
 
 function formatRegistrationDate(registerDate) {
   const register = new Date(registerDate);
