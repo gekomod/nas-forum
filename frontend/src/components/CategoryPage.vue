@@ -387,23 +387,43 @@ export default {
     handlePageChange(page) {
       this.currentPage = page;
     },
-    selectThread(thread) {
-      if (!thread) {
-        console.error('CategoryPage - BŁĄD: thread jest undefined/null');
-        return;
-      }
-      
-      if (!thread.id) {
-        console.error('CategoryPage - BŁĄD: thread nie ma ID:', thread);
-        return;
-      }
-      
-      try {
-        this.$emit('select-thread', thread);
-      } catch (error) {
-        console.error('CategoryPage - BŁĄD podczas emitowania:', error);
-      }
-    },
+selectThread(thread) {
+  // Zapisz czas ostatniej wizyty w kategorii
+  this.markCategoryVisited(this.category.id);
+  
+  if (!thread) {
+    console.error('CategoryPage - BŁĄD: thread jest undefined/null');
+    return;
+  }
+  
+  try {
+    this.$emit('select-thread', thread);
+    // Powiadom komponent CategoriesList o zmianie
+    this.$emit('category-visited', this.category.id);
+  } catch (error) {
+    console.error('CategoryPage - BŁĄD podczas emitowania:', error);
+  }
+},
+	async markCategoryVisited(categoryId) {
+	  if (this.user) {
+	    // Dla zalogowanych użytkowników - zapisz w bazie danych
+	    try {
+	      await axios.post('/mark-read', { categoryId });
+	    } catch (error) {
+	      console.error('Error marking category visit:', error);
+	    }
+	  } else {
+	    // Dla niezalogowanych - zapisz w localStorage
+	    const lastVisitTimes = JSON.parse(localStorage.getItem('categoryLastVisit') || '{}');
+	    lastVisitTimes[categoryId] = Date.now();
+	    localStorage.setItem('categoryLastVisit', JSON.stringify(lastVisitTimes));
+	  }
+	  
+	  // Wyślij event do CategoriesList, aby odświeżył status
+	  if (window.parent && window.parent.updateCategoryStatuses) {
+	    window.parent.updateCategoryStatuses();
+	  }
+	},
     confirmDeleteThread(threadId, isModerator = false) {
       const message = isModerator 
         ? 'Czy na pewno chcesz usunąć ten wątek? WSZYSTKIE ODPOWIEDZI ZOSTANĄ USUNIĘTE!'

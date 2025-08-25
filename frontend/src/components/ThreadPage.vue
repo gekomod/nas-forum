@@ -333,22 +333,80 @@ export default {
     this.checkWatchStatus();
   },
   methods: {
-    async loadThread() {
-      try {
-        const response = await axios.get(`/thread/${this.threadData.id}`);
-        this.thread = response.data.thread;
-        this.posts = response.data.posts.map(post => ({
-          ...post,
-          editing: false,
-          editContent: post.content,
-          saving: false
-        }));
-        
-        // Zwiększ licznik wyświetleń
-        await axios.put(`/thread/${this.threadData.id}/view`);
-      } catch (error) {
-        console.error('Error loading thread:', error);
-        this.$message.error('Błąd podczas ładowania wątku');
+async loadThread() {
+  try {
+    const response = await axios.get(`/thread/${this.threadData.id}`);
+    this.thread = response.data.thread;
+    this.posts = response.data.posts.map(post => ({
+      ...post,
+      editing: false,
+      editContent: post.content,
+      saving: false
+    }));
+    
+    // OZNACZ JAKO PRZECZYTANE
+    await this.markAsRead();
+    
+    // Zwiększ licznik wyświetleń
+    await axios.put(`/thread/${this.threadData.id}/view`);
+  } catch (error) {
+    console.error('Error loading thread:', error);
+    this.$message.error('Błąd podczas ładowania wątku');
+  }
+},
+
+async markAsRead() {
+  if (this.user) {
+    // Dla zalogowanych - zapisz w bazie
+    try {
+      await axios.post('/mark-read', { 
+        threadId: this.threadData.id,
+        postIds: this.posts.map(post => post.id),
+        categoryId: this.thread.category_id
+      });
+    } catch (error) {
+      console.error('Error marking as read:', error);
+    }
+  } else {
+    // Dla niezalogowanych - zapisz w localStorage
+    const lastVisitTimes = JSON.parse(localStorage.getItem('categoryLastVisit') || '{}');
+    lastVisitTimes[this.thread.category_id] = Date.now();
+    localStorage.setItem('categoryLastVisit', JSON.stringify(lastVisitTimes));
+  }
+  
+  // Powiadom komponent CategoriesList o zmianie
+  this.$emit('category-visited', this.thread.category_id);
+},
+    
+    async markThreadAsRead(threadId) {
+      if (this.user) {
+        // Dla zalogowanych użytkowników - zapisz w bazie danych
+        try {
+          await axios.post('/mark-read', { threadId });
+        } catch (error) {
+          console.error('Error marking thread as read:', error);
+        }
+      } else {
+        // Dla niezalogowanych - zapisz w localStorage
+        const readThreads = new Set(JSON.parse(localStorage.getItem('readThreads') || '[]'));
+        readThreads.add(threadId);
+        localStorage.setItem('readThreads', JSON.stringify(Array.from(readThreads)));
+      }
+    },
+    
+    async markPostsAsRead(postIds) {
+      if (this.user) {
+        // Dla zalogowanych użytkowników - zapisz w bazie danych
+        try {
+          await axios.post('/mark-read', { postIds });
+        } catch (error) {
+          console.error('Error marking posts as read:', error);
+        }
+      } else {
+        // Dla niezalogowanych - zapisz w localStorage
+        const readPosts = new Set(JSON.parse(localStorage.getItem('readPosts') || '[]'));
+        postIds.forEach(postId => readPosts.add(postId));
+        localStorage.setItem('readPosts', JSON.stringify(Array.from(readPosts)));
       }
     },
     

@@ -44,12 +44,15 @@
       </div>
       
       <div class="forum-content">
+        
         <CategoriesList 
-          v-if="currentView === 'categories'"
-          :categories="categories"
-          :current-user="currentUser"
-          @select-category="selectCategory"
-        />
+        v-if="currentView === 'categories'"
+  ref="categoriesList"
+  :categories="categories" 
+  :currentUser="currentUser"
+  @select-category="selectCategory"
+  @refresh-categories="loadCategories"
+/>
                 
         <CategoryPage 
           v-if="currentView === 'category'"
@@ -60,6 +63,8 @@
           @create-thread="showCreateThreadDialog = true"
           @select-thread="handleSelectThread"
           @delete-thread="handleDeleteThread"
+          @refresh-category="loadCategoryThreads"
+          @category-visited="handleCategoryVisited"
         />
         
         <ThreadPage 
@@ -68,6 +73,7 @@
           :category="selectedCategory"
           :user="currentUser"
           @back-to-category="currentView = 'category'"
+          @category-visited="handleCategoryVisited"
         />
 
         <!-- Użyj nowego komponentu AdminPanel -->
@@ -419,7 +425,16 @@ async loadStats() {
       } catch (error) {
         console.error('Błąd aktualizacji aktywności:', error);
       }
-    }
+    },
+	handleCategoryVisited(categoryId) {
+	  // Odśwież status kategorii
+	  if (this.$refs.categoriesList && this.$refs.categoriesList.updateCategoryStatus) {
+	    const category = this.categories.find(c => c.id === categoryId);
+	    if (category) {
+	      this.$refs.categoriesList.updateCategoryStatus(category);
+	    }
+	  }
+	}
   },
   async mounted() {
     // Sprawdź zapisane preferencje przy załadowaniu

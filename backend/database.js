@@ -128,6 +128,33 @@ function initDatabase() {
       FOREIGN KEY (user_id) REFERENCES users (id)
     )`);
     
+    db.run(`CREATE TABLE IF NOT EXISTS user_read_threads (
+      user_id INTEGER,
+      thread_id INTEGER,
+      read_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, thread_id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (thread_id) REFERENCES threads(id)
+    )`);
+    
+    db.run(`CREATE TABLE IF NOT EXISTS user_read_posts (
+      user_id INTEGER,
+      post_id INTEGER,
+      read_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, post_id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (post_id) REFERENCES posts(id)
+    )`);
+    
+    db.run(`CREATE TABLE IF NOT EXISTS user_category_visits (
+      user_id INTEGER,
+      category_id INTEGER,
+      last_visit DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, category_id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (category_id) REFERENCES categories(id)
+    )`);
+    
     db.run(`CREATE TABLE IF NOT EXISTS private_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       conversation_id TEXT NOT NULL,

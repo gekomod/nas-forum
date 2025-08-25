@@ -6,10 +6,17 @@
     </h2>
     <ul class="category-list">
       <li v-for="category in sortedCategories" :key="category.id" class="category-item" :class="{ locked: category.is_locked }">
-        <div class="category-icon">
+        <div class="category-icon" :class="{ 
+          'no-content': hasNoContent(category),
+          'has-unread': hasUnreadContent(category),
+          'all-read': hasContentButAllRead(category)
+        }">
           <Icon :icon="category.icon" />
           <div class="lock-indicator" v-if="category.is_locked">
             <Icon icon="mdi:lock" />
+          </div>
+          <div class="unread-indicator" v-if="hasUnreadContent(category)">
+            <Icon icon="mdi:circle" />
           </div>
         </div>
         <div class="category-content">
@@ -73,10 +80,15 @@ export default {
     categories: Array,
     currentUser: Object
   },
+  data() {
+    return {
+      lastVisitTimes: {},
+      categoryStatus: {} // Przechowuje status każdej kategorii
+    };
+  },
   computed: {
     sortedCategories() {
       return [...this.categories].sort((a, b) => {
-        // Sortuj najpierw po pozycji, potem po nazwie
         const posA = a.position || 999;
         const posB = b.position || 999;
         
@@ -87,19 +99,125 @@ export default {
       });
     }
   },
+  mounted() {
+    this.loadReadStatus();
+    this.updateAllCategoryStatuses();
+  },
+  watch: {
+    categories: {
+      handler() {
+        this.updateAllCategoryStatuses();
+      },
+      deep: true
+    },
+    currentUser: {
+      handler() {
+        this.loadReadStatus();
+        this.updateAllCategoryStatuses();
+      },
+      deep: true
+    }
+  },
   methods: {
-    handleCategoryClick(category) {
+    // Sprawdza czy kategoria nie ma żadnych treści
+    hasNoContent(category) {
+      return category.threads === 0 && category.posts === 0;
+    },
+    
+    // Sprawdza czy kategoria ma nieprzeczytane treści
+    hasUnreadContent(category) {
+      if (this.hasNoContent(category)) return false;
+      return this.categoryStatus[category.id] === 'unread';
+    },
+    
+    // Sprawdza czy kategoria ma treści, ale wszystkie są przeczytane
+    hasContentButAllRead(category) {
+      if (this.hasNoContent(category)) return false;
+      return this.categoryStatus[category.id] === 'read';
+    },
+    
+    // Aktualizuje status wszystkich kategorii
+    async updateAllCategoryStatuses() {
+      for (const category of this.categories) {
+        await this.updateCategoryStatus(category);
+      }
+    },
+    
+    // Aktualizuje status pojedynczej kategorii
+    async updateCategoryStatus(category) {
+      if (this.hasNoContent(category)) {
+        this.categoryStatus[category.id] = 'no-content';
+        return;
+      }
+      
+      const lastVisit = this.lastVisitTimes[category.id];
+      
+      // Jeśli nie ma zapisanego czasu wizyty, traktuj jako nieprzeczytane
+      if (!lastVisit) {
+        this.categoryStatus[category.id] = 'unread';
+        return;
+      }
+      
+      try {
+        // Dla zalogowanych użytkowników - sprawdź w bazie danych
+        if (this.currentUser) {
+          const response = await axios.get(`/category/${category.id}/unread-status`);
+          this.categoryStatus[category.id] = response.data.hasUnread ? 'unread' : 'read';
+        } else {
+          // Dla niezalogowanych - uproszczona logika oparta na czasie
+          const hasUnread = this.checkUnreadByTime(category, lastVisit);
+          this.categoryStatus[category.id] = hasUnread ? 'unread' : 'read';
+        }
+      } catch (error) {
+        console.error('Error checking unread status:', error);
+        const hasUnread = this.checkUnreadByTime(category, lastVisit);
+        this.categoryStatus[category.id] = hasUnread ? 'unread' : 'read';
+      }
+    },
+    
+    // Uproszczona logika sprawdzania nieprzeczytanych treści na podstawie czasu
+    checkUnreadByTime(category, lastVisit) {
+      const currentTime = Date.now();
+      const timeSinceLastVisit = currentTime - lastVisit;
+      
+      // Jeśli ostatnia wizyta była dawno temu (więcej niż 5 minut)
+      // traktuj jako nieprzeczytane
+      return timeSinceLastVisit > 5 * 60 * 1000;
+    },
+    
+    loadReadStatus() {
+      // Wczytaj czas ostatniej wizyty w kategoriach
+      if (localStorage.getItem('categoryLastVisit')) {
+        this.lastVisitTimes = JSON.parse(localStorage.getItem('categoryLastVisit'));
+      }
+    },
+    
+    async handleCategoryClick(category) {
+      // Zapisz czas wizyty w kategorii
+      this.lastVisitTimes[category.id] = Date.now();
+      localStorage.setItem('categoryLastVisit', JSON.stringify(this.lastVisitTimes));
+      
+      // Oznacz kategorię jako przeczytaną
+      this.categoryStatus[category.id] = 'read';
+      
+      // Dla zalogowanych użytkowników zapisz też na serwerze
+      if (this.currentUser) {
+        try {
+          await axios.post('/mark-read', { categoryId: category.id });
+        } catch (error) {
+          console.error('Error marking category as read:', error);
+        }
+      }
+      
       if (category.is_locked) {
         if (this.currentUser && (this.currentUser.role_id === 1 || this.currentUser.role_id === 2)) {
           this.$emit('select-category', category);
-          // Odśwież statystyki po wejściu do kategorii
           this.$emit('refresh-categories');
         } else {
           this.$message.warning('Ta kategoria jest tymczasowo zablokowana');
         }
       } else {
         this.$emit('select-category', category);
-        // Odśwież statystyki po wejściu do kategorii
         this.$emit('refresh-categories');
       }
     },
@@ -118,14 +236,6 @@ export default {
         5: 'VIP'
       };
       return roles[roleId] || `Rola ${roleId}`;
-    }
-  },
-  watch: {
-    categories: {
-      immediate: true,
-      handler(newVal) {
-        //console.log('Kategorie zostały zaktualizowane', newVal);
-      }
     }
   }
 }
@@ -166,6 +276,28 @@ export default {
   align-items: center;
   justify-content: center;
   color: white;
+  transition: all 0.3s ease;
+}
+
+/* Kategorie bez treści - zawsze wyszarzone */
+.category-icon.no-content {
+  background: #e6e6e6 !important;
+  color: #a0a0a0 !important;
+  opacity: 0.7;
+}
+
+/* Kategorie z nieprzeczytanymi treściami - normalny wygląd */
+.category-icon.has-unread {
+  background: var(--gradient-primary);
+  color: white;
+  box-shadow: 0 0 0 2px var(--el-color-primary);
+}
+
+/* Kategorie z przeczytanymi treściami - wyszarzone */
+.category-icon.all-read {
+  background: #e6e6e6;
+  color: #a0a0a0;
+  opacity: 0.7;
 }
 
 .lock-indicator {
@@ -180,6 +312,28 @@ export default {
   align-items: center;
   justify-content: center;
   font-size: 12px;
+}
+
+.unread-indicator {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: var(--el-color-primary);
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: white;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
 }
 
 .category-content {

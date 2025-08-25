@@ -2204,6 +2204,108 @@ app.put('/api/pm-settings', authenticateToken, (req, res) => {
   );
 });
 
+app.post('/api/mark-read', authenticateToken, (req, res) => {
+  const { threadId, postIds, categoryId } = req.body;
+  const userId = req.user.id;
+
+  try {
+    if (threadId) {
+      // Zapisz przeczytany wątek w bazie danych
+      db.run(
+        'INSERT OR REPLACE INTO user_read_threads (user_id, thread_id, read_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+        [userId, threadId]
+      );
+    }
+
+    if (postIds && postIds.length > 0) {
+      // Zapisz przeczytane posty
+      const stmt = db.prepare(
+        'INSERT OR REPLACE INTO user_read_posts (user_id, post_id, read_at) VALUES (?, ?, CURRENT_TIMESTAMP)'
+      );
+      
+      postIds.forEach(postId => {
+        stmt.run([userId, postId]);
+      });
+      
+      stmt.finalize();
+    }
+
+    if (categoryId) {
+      // Zapisz czas ostatniej wizyty w kategorii
+      db.run(
+        'INSERT OR REPLACE INTO user_category_visits (user_id, category_id, last_visit) VALUES (?, ?, CURRENT_TIMESTAMP)',
+        [userId, categoryId]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error marking read:', error);
+    res.status(500).json({ error: 'Błąd podczas zapisywania statusu przeczytania' });
+  }
+});
+
+// Endpoint do sprawdzania nieprzeczytanych treści w kategorii
+app.get('/api/category/:id/unread-status', authenticateToken, (req, res) => {
+  const categoryId = req.params.id;
+  const userId = req.user.id;
+
+  // Najpierw sprawdź czy użytkownik w ogóle odwiedził już tę kategorię
+  db.get(
+    'SELECT last_visit FROM user_category_visits WHERE user_id = ? AND category_id = ?',
+    [userId, categoryId],
+    (err, visit) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Jeśli użytkownik nigdy nie odwiedził kategorii, to wszystkie treści są nieprzeczytane
+      if (!visit) {
+        return res.json({ hasUnread: true });
+      }
+      
+      // Sprawdź czy są nowe wątki lub posty od ostatniej wizyty
+      const query = `
+        SELECT 
+          (SELECT COUNT(*) FROM threads 
+           WHERE category_id = ? AND last_post_time > ?) as new_threads,
+          (SELECT COUNT(*) FROM posts p 
+           JOIN threads t ON p.thread_id = t.id 
+           WHERE t.category_id = ? AND p.date > ?) as new_posts
+      `;
+      
+      db.get(query, [categoryId, visit.last_visit, categoryId, visit.last_visit], (err, row) => {
+        if (err) {
+          console.error('Database error:', err);
+          return res.status(500).json({ error: err.message });
+        }
+        
+        const hasUnread = (row.new_threads > 0) || (row.new_posts > 0);
+        res.json({ hasUnread });
+      });
+    }
+  );
+});
+
+// Endpoint do pobierania czasu ostatniej wizyty w kategorii
+app.get('/api/category/:id/last-visit', authenticateToken, (req, res) => {
+  const categoryId = req.params.id;
+  const userId = req.user.id;
+
+  db.get(
+    'SELECT last_visit FROM user_category_visits WHERE user_id = ? AND category_id = ?',
+    [userId, categoryId],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ lastVisit: row ? row.last_visit : null });
+    }
+  );
+});
+
 function formatRegistrationDate(registerDate) {
   const register = new Date(registerDate);
   const now = new Date();
