@@ -77,22 +77,37 @@
               {{ post.author_posts }} postów
             </div>
             
-              <!-- Dodane informacje o użytkowniku -->
-  <div class="user-details">
-    <div class="user-detail" v-if="post.author_register_date">
-      <Icon icon="mdi:calendar" />
-      Rejestracja: {{ post.author_register_date }}
-    </div>
-    <div class="user-detail" v-if="post.author_last_login">
-      <Icon icon="mdi:clock" />
-      Ostatnio: {{ formatLastActivity(post.author_last_login) }}
-    </div>
-    <div class="user-detail" v-if="post.author_posts_count">
-      <Icon icon="mdi:message-text" />
-      Postów: {{ post.author_posts_count }}
-    </div>
-  </div>
-  
+            <!-- Dodane informacje o użytkowniku -->
+            <div class="user-details">
+              <div class="user-detail" v-if="post.author_register_date">
+                <Icon icon="mdi:calendar" />
+                Rejestracja: {{ post.author_register_date }}
+              </div>
+              <div class="user-detail" v-if="post.author_last_login">
+                <Icon icon="mdi:clock" />
+                Ostatnio: {{ formatLastActivity(post.author_last_login) }}
+              </div>
+              <div class="user-detail" v-if="post.author_posts_count">
+                <Icon icon="mdi:message-text" />
+                Postów: {{ post.author_posts_count }}
+              </div>
+              
+              <!-- Przycisk wysyłania wiadomości prywatnej -->
+              <div class="user-detail pm-action" v-if="user && user.id !== post.author_id">
+                <el-tooltip 
+                  effect="dark" 
+                  content="Wyślij wiadomość prywatną" 
+                  placement="top"
+                >
+                  <button 
+                    class="pm-button"
+                    @click="openPrivateMessageModal(post.author, post.author_id)"
+                  >
+                    <Icon icon="mdi:email-fast-outline" />
+                  </button>
+                </el-tooltip>
+              </div>
+            </div>
           </div>
         </div>
         <div class="post-content">
@@ -119,12 +134,12 @@
           </div>
           
           <div class="post-footer">
-                <div class="post-date">
-		  {{ formatDateTime(post.date) }}
-		 <span v-if="post.edited_at" class="edited-info">
-	          (edytowano {{ formatRelativeTime(post.edited_at) }})
-		 </span>
-		</div>
+            <div class="post-date">
+              {{ formatDateTime(post.date) }}
+              <span v-if="post.edited_at" class="edited-info">
+                (edytowano {{ formatRelativeTime(post.edited_at) }})
+              </span>
+            </div>
             <div class="post-actions" v-if="user">
               <button class="action-btn" @click="quotePost(post)" :disabled="thread.is_closed">
                 <Icon icon="mdi:format-quote-close" />
@@ -206,6 +221,50 @@
         :closable="false"
       />
     </div>
+
+  <!-- Modal do wysyłania wiadomości prywatnych -->
+  <div v-if="pmModalVisible" class="pm-modal-overlay" @click.self="pmModalVisible = false">
+    <div class="pm-modal">
+      <div class="pm-modal-header">
+        <h3>Wyślij wiadomość prywatną do {{ pmRecipientName }}</h3>
+        <button class="pm-modal-close" @click="pmModalVisible = false">
+          <Icon icon="mdi:close" />
+        </button>
+      </div>
+      
+      <div class="pm-modal-content">
+        
+        <v-md-editor 
+          v-model="pmContent" 
+          :disabled-menus="[]" 
+          height="200px"
+          placeholder="Treść wiadomości..."
+          left-toolbar="undo redo clear | h bold italic strikethrough quote | ul ol table hr | link image code"
+          class="pm-editor"
+        />
+        
+        <div class="pm-preview" v-if="pmPreview">
+          <div class="preview-header">Podgląd wiadomości:</div>
+          <div class="preview-content" v-html="compiledMarkdown(pmContent)" />
+        </div>
+      </div>
+      
+      <div class="pm-modal-footer">
+        <el-button @click="pmModalVisible = false">Anuluj</el-button>
+        <el-button @click="pmPreview = !pmPreview">
+          {{ pmPreview ? 'Edytuj' : 'Podgląd' }}
+        </el-button>
+        <el-button 
+          type="primary" 
+          @click="sendPrivateMessage" 
+          :loading="pmSending"
+          :disabled="!pmContent.trim()"
+        >
+          Wyślij wiadomość
+        </el-button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -235,7 +294,16 @@ export default {
       submitting: false,
       previewMode: false,
       isWatching: false,
-      watchingLoading: false
+      watchingLoading: false,
+      
+      // Nowe dane dla wiadomości prywatnych
+      pmModalVisible: false,
+      pmRecipientId: null,
+      pmRecipientName: '',
+      pmSubject: '',
+      pmContent: '',
+      pmSending: false,
+      pmPreview: false
     };
   },
   computed: {
@@ -470,46 +538,46 @@ export default {
       return `${diffMonths} miesięcy`;
     }, 
   
-  formatDaysAgo(dateString) {
-    if (!dateString) return 'brak danych';
-    
-    const joinDate = new Date(dateString);
-    const today = new Date();
-    const diffTime = Math.abs(today - joinDate);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 1) return '1 dzień';
-    if (diffDays < 30) return `${diffDays} dni`;
-    
-    const diffMonths = Math.floor(diffDays / 30);
-    if (diffMonths === 1) return '1 miesiąc';
-    if (diffMonths < 12) return `${diffMonths} miesięcy`;
-    
-    const diffYears = Math.floor(diffMonths / 12);
-    if (diffYears === 1) return '1 rok';
-    return `${diffYears} lat`;
-  },
+    formatDaysAgo(dateString) {
+      if (!dateString) return 'brak danych';
+      
+      const joinDate = new Date(dateString);
+      const today = new Date();
+      const diffTime = Math.abs(today - joinDate);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 1) return '1 dzień';
+      if (diffDays < 30) return `${diffDays} dni`;
+      
+      const diffMonths = Math.floor(diffDays / 30);
+      if (diffMonths === 1) return '1 miesiąc';
+      if (diffMonths < 12) return `${diffMonths} miesięcy`;
+      
+      const diffYears = Math.floor(diffMonths / 12);
+      if (diffYears === 1) return '1 rok';
+      return `${diffYears} lat`;
+    },
   
-  formatLastActivity(dateString) {
-    if (!dateString) return 'brak danych';
-    
-    const activityDate = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - activityDate;
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffMins < 1) return 'teraz';
-    if (diffMins < 60) return `${diffMins} min`;
-    if (diffHours < 24) return `${diffHours} godz`;
-    if (diffDays === 1) return '1 dzień';
-    if (diffDays < 30) return `${diffDays} dni`;
-    
-    const diffMonths = Math.floor(diffDays / 30);
-    if (diffMonths === 1) return '1 miesiąc';
-    return `${diffMonths} miesięcy`;
-  },
+    formatLastActivity(dateString) {
+      if (!dateString) return 'brak danych';
+      
+      const activityDate = new Date(dateString);
+      const now = new Date();
+      const diffMs = now - activityDate;
+      const diffMins = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffMins < 1) return 'teraz';
+      if (diffMins < 60) return `${diffMins} min`;
+      if (diffHours < 24) return `${diffHours} godz`;
+      if (diffDays === 1) return '1 dzień';
+      if (diffDays < 30) return `${diffDays} dni`;
+      
+      const diffMonths = Math.floor(diffDays / 30);
+      if (diffMonths === 1) return '1 miesiąc';
+      return `${diffMonths} miesięcy`;
+    },
   
     async checkWatchStatus() {
       if (!this.user) return;
@@ -548,8 +616,60 @@ export default {
       } finally {
         this.watchingLoading = false;
       }
-    }
+    },
+    
+    // Otwórz modal do wysyłania wiadomości prywatnej
+openPrivateMessageModal(recipientName, recipientId) {
   
+  if (!this.user) {
+    this.$message.warning('Musisz być zalogowany, aby wysyłać wiadomości prywatne');
+    return;
+  }
+  
+  this.pmRecipientId = recipientId; // TUTAJ PRZEKAZUJEMY ID, a nie nazwę
+  this.pmRecipientName = recipientName;
+  this.pmContent = '';
+  this.pmPreview = false;
+  this.pmModalVisible = true;
+},
+    
+async sendPrivateMessage() {
+  if (!this.pmContent.trim()) {
+    this.$message.warning('Treść wiadomości nie może być pusta');
+    return;
+  }
+  
+  this.pmSending = true;
+  try {
+    // Wysyłamy tylko receiver_id i content (bez subject)
+    const response = await axios.post('/private-messages/send', {
+      receiver_id: this.pmRecipientId,
+      content: this.pmContent
+      // subject jest pomijany, bo baza go nie obsługuje
+    });
+    
+    this.$message.success('Wiadomość prywatna została wysłana');
+    this.pmModalVisible = false;
+    this.pmContent = '';
+    this.pmSubject = ''; // Czyścimy, ale i tak nie jest używany
+  } catch (error) {
+    console.error('Error sending private message:', error);
+    
+    // Dokładniejsza diagnostyka błędów
+    if (error.response) {
+      console.error('Response error:', error.response.data);
+      this.$message.error(error.response.data.error || 'Błąd podczas wysyłania wiadomości');
+    } else if (error.request) {
+      console.error('Request error:', error.request);
+      this.$message.error('Błąd połączenia z serwerem');
+    } else {
+      this.$message.error('Nieoczekiwany błąd');
+    }
+  } finally {
+    this.pmSending = false;
+  }
+}
+
   }
 }
 </script>
@@ -952,47 +1072,141 @@ export default {
   font-style: italic;
 }
 
-  html.dark .post-even {
-    background-color: var(--post-bg-even-dark, #2d3748);
-    border-color: var(--post-border-even-dark, #4a5568);
-  }
-  
-  html.dark .post-odd {
-    background-color: var(--post-bg-odd-dark, #1a202c);
-    border-color: var(--post-border-odd-dark, #4a5568);
-  }
-  
-  html.dark .post-number-link {
-    background: var(--el-color-primary-dark-2);
-  }
-  
-  html.dark .post-number-link:hover {
-    background: var(--el-color-primary);
-  }
+/* Style dla przycisku PW */
+.pm-action {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--el-border-color-lighter);
+  display: flex;
+  justify-content: center;
+}
+
+.pm-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0;
+}
+
+.pm-button:hover {
+  background: var(--el-color-primary);
+  color: white;
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Style dla modalu PW */
+.pm-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.pm-modal {
+  background: white;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.pm-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--el-border-color-light);
+}
+
+.pm-modal-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.pm-modal-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.pm-modal-close:hover {
+  background-color: var(--el-fill-color-light);
+  color: var(--text-primary);
+}
+
+.pm-modal-content {
+  padding: 20px;
+}
+
+.pm-subject {
+  margin-bottom: 15px;
+}
+
+.pm-editor {
+  margin-bottom: 15px;
+}
+
+.pm-preview {
+  margin-top: 15px;
+  padding: 15px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  border: 1px solid var(--el-border-color-light);
+}
+
+.pm-preview .preview-header {
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.pm-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--el-border-color-light);
+}
 
 /* Dla ciemnego motywu */
 @media (prefers-color-scheme: dark) {
-  .post-body :deep(pre) {
-    background: #2d3748;
-    border-color: #4a5568;
+  .pm-modal {
+    background: var(--card-bg);
   }
   
-  .post-body :deep(pre code) {
-    color: #e2e8f0;
-  }
-
-  
-  .preview-container {
-    background: #2d3748;
-    border-color: #4a5568;
+  .pm-button {
+    border-color: var(--el-color-primary);
+    background: var(--el-color-primary-dark-2);
+    color: var(--el-color-primary-light-3);
   }
   
-  .post-number-link {
+  .pm-button:hover {
+    background: var(--el-color-primary);
+    color: white;
   }
-  
-  .post-number-link:hover {
-  }
-  
 }
 
 /* Responsywność */
@@ -1037,32 +1251,6 @@ export default {
     text-align: left;
   }
   
-.post-number-alt {
-  position: absolute;
-  top: 15px;
-  left: 15px;
-  z-index: 2;
-}
-
-.post-number-alt-link {
-  display: block;
-  padding: 4px 8px;
-  background: var(--el-fill-color-light);
-  color: var(--text-secondary);
-  border-radius: 4px;
-  font-weight: 500;
-  font-size: 11px;
-  text-decoration: none;
-  transition: all 0.2s ease;
-  border: 1px solid var(--el-border-color-light);
-}
-
-.post-number-alt-link:hover {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary-light-5);
-}
-  
   .user-info {
     margin-top: 0;
     text-align: left;
@@ -1077,6 +1265,19 @@ export default {
   .post-actions {
     width: 100%;
     justify-content: flex-end;
+  }
+  
+  .pm-modal {
+    max-width: 100%;
+    margin: 0;
+  }
+  
+  .pm-modal-footer {
+    flex-direction: column;
+  }
+  
+  .pm-modal-footer .el-button {
+    width: 100%;
   }
 }
 </style>

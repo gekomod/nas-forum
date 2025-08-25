@@ -415,15 +415,15 @@ app.get('/api/thread/:id', (req, res) => {
 	  LEFT JOIN users u ON t.author = u.username
 	  WHERE t.id = ?`;
 
-	const postsQuery = `
-	  SELECT p.*, u.last_login as author_last_login, u.created_at as author_created_at,
-		 u.avatar as author_avatar,
-		 (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count
-	  FROM posts p 
-	  LEFT JOIN users u ON p.author = u.username
-	  WHERE p.thread_id = ? 
-	  ORDER BY p.date ASC
-	`;
+const postsQuery = `
+  SELECT p.*, u.id as author_id, u.last_login as author_last_login, 
+         u.created_at as author_created_at, u.avatar as author_avatar,
+         (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count
+  FROM posts p 
+  LEFT JOIN users u ON p.author = u.username
+  WHERE p.thread_id = ? 
+  ORDER BY p.date ASC
+`;
   
   // Pobierz wątek
   db.get(threadQuery, [threadId], (err, thread) => {
