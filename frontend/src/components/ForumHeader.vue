@@ -25,6 +25,13 @@
         <Icon :icon="darkMode ? 'mdi:weather-sunny' : 'mdi:weather-night'" />
       </button>
       
+	  <button v-if="user"  class="control-btn"  @click="$emit('show-private-messages')" title="Wiadomości prywatne">
+	    <Icon icon="mdi:email-outline" />
+	    <span v-if="unreadMessages > 0" class="notification-badge">
+	      {{ unreadMessages > 99 ? '99+' : unreadMessages }}
+	    </span>
+	  </button>
+      
       <el-dropdown v-if="user" trigger="click">
         <button class="control-btn user-btn">
           <img :src="user.avatar || '/default-avatar.png'" class="user-avatar" />
@@ -144,7 +151,8 @@ export default {
     'show-register', 
     'show-profile', 
     'show-admin-panel',
-    'show-categories', 
+    'show-categories',
+    'show-private-messages',
     'logout'
   ],
   data() {
@@ -152,7 +160,9 @@ export default {
       notifications: [],
       notificationsInterval: null,
       loadingNotifications: false,
-      markingAllAsRead: false
+      markingAllAsRead: false,
+      unreadMessages: 0,
+      messagesInterval: null
     };
   },
   computed: {
@@ -166,12 +176,17 @@ export default {
   mounted() {
     if (this.user) {
       this.loadNotifications();
+      this.loadUnreadMessages();
+      this.startMessagesPolling();
       this.startNotificationsPolling();
     }
   },
   beforeUnmount() {
     if (this.notificationsInterval) {
       clearInterval(this.notificationsInterval);
+    }
+    if (this.messagesInterval) {
+      clearInterval(this.messagesInterval);
     }
   },
   methods: {
@@ -249,6 +264,22 @@ export default {
       this.$emit('show-notifications');
     },
     
+    async loadUnreadMessages() {
+      if (!this.user) return;
+      
+      try {
+        const response = await axios.get('/private-messages/unread-count');
+        this.unreadMessages = response.data.count || 0;
+      } catch (error) {
+        console.error('Error loading unread messages:', error);
+      }
+    },
+    startMessagesPolling() {
+      this.messagesInterval = setInterval(() => {
+        this.loadUnreadMessages();
+      }, 60000); // Sprawdzaj co minutę
+    },
+    
     formatRelativeTime(dateString) {
       if (!dateString) return '';
       
@@ -276,12 +307,19 @@ export default {
       handler(newUser) {
         if (newUser) {
           this.loadNotifications();
+          this.loadUnreadMessages();
+          this.startMessagesPolling();
           this.startNotificationsPolling();
         } else {
           if (this.notificationsInterval) {
             clearInterval(this.notificationsInterval);
             this.notificationsInterval = null;
           }
+          if (this.messagesInterval) {
+            clearInterval(this.messagesInterval);
+            this.messagesInterval = null;
+          }
+          this.unreadMessages = 0;
           this.notifications = [];
         }
       }

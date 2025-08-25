@@ -127,6 +127,33 @@ function initDatabase() {
       FOREIGN KEY (thread_id) REFERENCES threads (id),
       FOREIGN KEY (user_id) REFERENCES users (id)
     )`);
+    
+    db.run(`CREATE TABLE IF NOT EXISTS private_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id TEXT NOT NULL,
+      sender_id INTEGER NOT NULL,
+      receiver_id INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      is_read BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (sender_id) REFERENCES users (id),
+      FOREIGN KEY (receiver_id) REFERENCES users (id)
+    )`);
+    
+    // Dodaj indeksy dla lepszej wydajności
+    db.run('CREATE INDEX IF NOT EXISTS idx_pm_conversation ON private_messages (conversation_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_pm_sender ON private_messages (sender_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_pm_receiver ON private_messages (receiver_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_pm_read ON private_messages (is_read)');
+    
+    db.run(`CREATE TABLE IF NOT EXISTS user_pm_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER UNIQUE NOT NULL,
+      allow_private_messages BOOLEAN DEFAULT 1,
+      notify_on_pm BOOLEAN DEFAULT 1,
+      save_sent_messages BOOLEAN DEFAULT 1,
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS auth_tokens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

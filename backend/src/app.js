@@ -1959,6 +1959,251 @@ async function notifyThreadSubscribers(threadId, postId, replyAuthor, replyConte
   }
 }
 
+// Wiadomości prywatne - pobierz konwersacje
+app.get('/api/private-messages/conversations', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  
+  const query = `
+    SELECT 
+      pm.*,
+      u1.username as sender_username,
+      u1.avatar as sender_avatar,
+      u2.username as receiver_username,
+      u2.avatar as receiver_avatar,
+      (SELECT COUNT(*) FROM private_messages WHERE conversation_id = pm.conversation_id AND is_read = 0 AND receiver_id = ?) as unread_count
+    FROM (
+      SELECT 
+        conversation_id,
+        MAX(created_at) as last_message_time,
+        MAX(id) as last_message_id
+      FROM private_messages
+      WHERE sender_id = ? OR receiver_id = ?
+      GROUP BY conversation_id
+    ) latest
+    JOIN private_messages pm ON latest.last_message_id = pm.id
+    JOIN users u1 ON pm.sender_id = u1.id
+    JOIN users u2 ON pm.receiver_id = u2.id
+    ORDER BY latest.last_message_time DESC
+  `;
+  
+  db.all(query, [userId, userId, userId], (err, conversations) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json(conversations);
+  });
+});
+
+// Wiadomości prywatne - pobierz wiadomości w konwersacji
+app.get('/api/private-messages/conversation/:userId', authenticateToken, (req, res) => {
+  const currentUserId = req.user.id;
+  const otherUserId = req.params.userId;
+  
+  // Utwórz unikalne ID konwersacji
+  const conversationId = [currentUserId, otherUserId].sort().join('_');
+  
+  // Oznacz wiadomości jako przeczytane
+  db.run(
+    'UPDATE private_messages SET is_read = 1 WHERE conversation_id = ? AND receiver_id = ? AND is_read = 0',
+    [conversationId, currentUserId],
+    (err) => {
+      if (err) {
+        console.error('Error marking messages as read:', err);
+      }
+      
+      // Pobierz wiadomości
+      const query = `
+        SELECT pm.*, u.username as sender_username, u.avatar as sender_avatar
+        FROM private_messages pm
+        JOIN users u ON pm.sender_id = u.id
+        WHERE pm.conversation_id = ?
+        ORDER BY pm.created_at ASC
+      `;
+      
+      db.all(query, [conversationId], (err, messages) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        res.json(messages);
+      });
+    }
+  );
+});
+
+// Wiadomości prywatne - wyślij wiadomość
+app.post('/api/private-messages/send', authenticateToken, (req, res) => {
+  const { receiver_id, content } = req.body;
+  const sender_id = req.user.id;
+  
+  // Utwórz unikalne ID konwersacji
+  const conversationId = [sender_id, receiver_id].sort().join('_');
+  
+  db.run(
+    `INSERT INTO private_messages (conversation_id, sender_id, receiver_id, content)
+     VALUES (?, ?, ?, ?)`,
+    [conversationId, sender_id, receiver_id, content],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ 
+        message: 'Wiadomość została wysłana',
+        message_id: this.lastID 
+      });
+    }
+  );
+});
+
+// Wiadomości prywatne - pobierz liczbę nieprzeczytanych wiadomości
+app.get('/api/private-messages/unread-count', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  
+  db.get(
+    'SELECT COUNT(*) as count FROM private_messages WHERE receiver_id = ? AND is_read = 0',
+    [userId],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ count: row.count });
+    }
+  );
+});
+
+// Wiadomości prywatne - usuń konwersację
+app.delete('/api/private-messages/conversation/:userId', authenticateToken, (req, res) => {
+  const currentUserId = req.user.id;
+  const otherUserId = req.params.userId;
+  const conversationId = [currentUserId, otherUserId].sort().join('_');
+  
+  db.run(
+    'DELETE FROM private_messages WHERE conversation_id = ?',
+    [conversationId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ message: 'Konwersacja została usunięta' });
+    }
+  );
+});
+
+// Wyszukiwanie użytkowników
+app.get('/api/users/search', authenticateToken, (req, res) => {
+  const query = req.query.q;
+  
+  if (!query || query.length < 2) {
+    return res.json([]);
+  }
+  
+  db.all(
+    `SELECT id, username, email, avatar 
+     FROM users 
+     WHERE username LIKE ? OR email LIKE ?
+     ORDER BY username
+     LIMIT 10`,
+    [`%${query}%`, `%${query}%`],
+    (err, users) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json(users);
+    }
+  );
+});
+
+// Wiadomości prywatne - pobierz statystyki
+app.get('/api/pm-stats', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  
+  const query = `
+    SELECT 
+      COUNT(*) as total_count,
+      SUM(CASE WHEN is_read = 0 AND receiver_id = ? THEN 1 ELSE 0 END) as unread_count,
+      SUM(CASE WHEN sender_id = ? THEN 1 ELSE 0 END) as sent_count,
+      SUM(CASE WHEN receiver_id = ? THEN 1 ELSE 0 END) as received_count
+    FROM private_messages
+  `;
+  
+  db.get(query, [userId, userId, userId], (err, stats) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json({
+      received_count: stats.received_count || 0,
+      sent_count: stats.sent_count || 0,
+      unread_count: stats.unread_count || 0,
+      saved_count: 0 // Możesz dodać logikę zapisywania wiadomości później
+    });
+  });
+});
+
+// Wiadomości prywatne - pobierz ustawienia
+app.get('/api/pm-settings', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  
+  // Sprawdź czy użytkownik ma już ustawienia
+  db.get(
+    'SELECT * FROM user_pm_settings WHERE user_id = ?',
+    [userId],
+    (err, settings) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Jeśli nie ma ustawień, utwórz domyślne
+      if (!settings) {
+        const defaultSettings = {
+          allow_private_messages: 1,
+          notify_on_pm: 1,
+          save_sent_messages: 1
+        };
+        
+        db.run(
+          'INSERT INTO user_pm_settings (user_id, allow_private_messages, notify_on_pm, save_sent_messages) VALUES (?, ?, ?, ?)',
+          [userId, 1, 1, 1],
+          function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            res.json(defaultSettings);
+          }
+        );
+      } else {
+        res.json(settings);
+      }
+    }
+  );
+});
+
+// Wiadomości prywatne - aktualizuj ustawienia
+app.put('/api/pm-settings', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const { allow_private_messages, notify_on_pm, save_sent_messages } = req.body;
+  
+  db.run(
+    `INSERT OR REPLACE INTO user_pm_settings 
+     (user_id, allow_private_messages, notify_on_pm, save_sent_messages)
+     VALUES (?, ?, ?, ?)`,
+    [userId, allow_private_messages, notify_on_pm, save_sent_messages],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ message: 'Ustawienia wiadomości prywatnych zostały zaktualizowane' });
+    }
+  );
+});
+
 function formatRegistrationDate(registerDate) {
   const register = new Date(registerDate);
   const now = new Date();

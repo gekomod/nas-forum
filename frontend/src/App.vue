@@ -17,6 +17,7 @@
         @show-categories="showCategoryModal = true"
         @show-notifications="currentView = 'notifications'"
         @view-thread="handleViewThread"
+        @show-private-messages="currentView = 'private-messages'"
         @logout="handleLogout"
       />
       
@@ -31,6 +32,10 @@
             <Icon icon="mdi:view-grid" />
             Kategorie
           </el-menu-item>
+          <el-menu-item index="private-messages" v-if="currentUser">
+	      <Icon icon="mdi:email" />
+	      Wiadomości
+	  </el-menu-item>
           <el-menu-item index="admin-panel" v-if="isAdminOrModerator">
             <Icon icon="mdi:cog" />
             Panel Administracyjny
@@ -70,6 +75,12 @@
           v-if="currentView === 'admin-panel'" 
           :is-admin="isAdmin"
         />
+        
+          <PrivateMessages 
+	    v-if="currentView === 'private-messages'"
+	    :current-user="currentUser"
+	    @show-profile="showProfileModal = true"
+	  />
         
         <NotificationsPage v-if="currentView === 'notifications'" />
         
@@ -131,6 +142,7 @@ import PostsManagement from './components/PostsManagement.vue';
 import AdminPanel from './components/AdminPanel.vue';
 import PageUsers from './components/PageUsers.vue';
 import NotificationsPage from './components/NotificationsPage.vue';
+import PrivateMessages from './components/PrivateMessages.vue';
 import { Icon } from "@iconify/vue";
 import axios from 'axios'
 
@@ -154,6 +166,7 @@ export default {
     AdminPanel,
     PageUsers,
     NotificationsPage,
+    PrivateMessages,
     Icon
   },
   data() {

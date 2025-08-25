@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" title="Profil użytkownika" width="700px">
+  <el-dialog v-model="visible" title="Profil użytkownika" width="600px">
     <div v-if="user" class="profile-content">
       <div class="profile-header">
         <div class="avatar-container">
@@ -19,10 +19,10 @@
           <h3>{{ user.username }}<div class="status-indicator" :class="statusClass"></div></h3>
           <p class="role">{{ user.role_name }}</p>
           <p>Dołączył: {{ formatDate(user.created_at) }}</p>
-                <p v-if="user.last_login">
-        Ostatnia aktywność: {{ formatDate(user.last_login) }}
-        <span class="status-text">({{ statusText }})</span>
-      </p>
+          <p v-if="user.last_login">
+            Ostatnia aktywność: {{ formatDate(user.last_login) }}
+            <span class="status-text">({{ statusText }})</span>
+          </p>
         </div>
       </div>
       
@@ -105,6 +105,76 @@
             </el-form-item>
           </el-form>
         </el-tab-pane>
+        
+        <el-tab-pane label="Wiadomości Prywatne" name="privateMessages">
+          <div class="private-messages">
+            <div class="pm-header">
+              <h3>Ustawienia Wiadomości Prywatnych</h3>
+              <el-button 
+                type="primary" 
+                size="small" 
+                @click="sendPrivateMessage">
+                Wyślij wiadomość
+              </el-button>
+            </div>
+            
+            <el-form :model="pmSettingsForm" label-width="200px">
+              <el-form-item label="Akceptuj wiadomości prywatne">
+                <el-switch 
+                  v-model="pmSettingsForm.allow_private_messages" 
+                  :active-value="1" 
+                  :inactive-value="0">
+                </el-switch>
+              </el-form-item>
+              <el-form-item label="Powiadomienia o nowych wiadomościach">
+                <el-switch 
+                  v-model="pmSettingsForm.notify_on_pm" 
+                  :active-value="1" 
+                  :inactive-value="0">
+                </el-switch>
+              </el-form-item>
+              <el-form-item label="Automatyczne zapisywanie kopii wysłanych">
+                <el-switch 
+                  v-model="pmSettingsForm.save_sent_messages" 
+                  :active-value="1" 
+                  :inactive-value="0">
+                </el-switch>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="updatePmSettings">Zapisz ustawienia</el-button>
+              </el-form-item>
+            </el-form>
+            
+            <div class="pm-stats" v-if="pmStats">
+              <el-divider></el-divider>
+              <h4>Statystyki wiadomości</h4>
+              <div class="stats-grid">
+                <div class="stat-item">
+                  <span class="stat-label">Odebrane</span>
+                  <span class="stat-value">{{ pmStats.received_count }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Wysłane</span>
+                  <span class="stat-value">{{ pmStats.sent_count }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Nieprzeczytane</span>
+                  <span class="stat-value">{{ pmStats.unread_count }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Zapisane</span>
+                  <span class="stat-value">{{ pmStats.saved_count }}</span>
+                </div>
+              </div>
+              <el-button 
+                type="text" 
+                @click="goToMessages"
+                class="view-all-btn">
+                Zobacz wszystkie wiadomości →
+              </el-button>
+            </div>
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </div>
   </el-dialog>
@@ -148,6 +218,12 @@ export default {
         notify_on_mention: 0,
         notify_on_thread_update: 0
       },
+      pmSettingsForm: {
+        allow_private_messages: 1,
+        notify_on_pm: 1,
+        save_sent_messages: 1
+      },
+      pmStats: null,
       passwordRules: {
         currentPassword: [
           { required: true, message: 'Obecne hasło jest wymagane', trigger: 'blur' }
@@ -161,7 +237,7 @@ export default {
           { validator: validatePassword, trigger: 'blur' }
         ]
       },
-      uploadAction: '/api/upload-avatar'
+      uploadAction: '/upload-avatar'
     };
   },
   computed: {
@@ -195,6 +271,12 @@ export default {
         
         // Załaduj ustawienia powiadomień, jeśli dostępne
         this.loadNotificationSettings();
+        
+        // Załaduj ustawienia wiadomości prywatnych
+        this.loadPmSettings();
+        
+        // Załaduj statystyki wiadomości
+        this.loadPmStats();
       }
     },
     user(newUser) {
@@ -204,10 +286,20 @@ export default {
         
         // Załaduj ustawienia powiadomień, jeśli dostępne
         this.loadNotificationSettings();
+        
+        // Załaduj ustawienia wiadomości prywatnych
+        this.loadPmSettings();
+        
+        // Załaduj statystyki wiadomości
+        this.loadPmStats();
       }
     }
   },
   methods: {
+    sendPrivateMessage() {
+      this.$emit('send-private-message', this.user);
+      this.visible = false;
+    },
     async loadNotificationSettings() {
       try {
         const response = await axios.get('/notification-settings');
@@ -233,6 +325,73 @@ export default {
         };
       }
     },
+    
+    async loadPmSettings() {
+  try {
+    const response = await axios.get('/pm-settings');
+    if (response.data) {
+      this.pmSettingsForm = {
+        allow_private_messages: response.data.allow_private_messages || 1,
+        notify_on_pm: response.data.notify_on_pm || 1,
+        save_sent_messages: response.data.save_sent_messages || 1
+      };
+    }
+  } catch (error) {
+    console.error('Błąd ładowania ustawień wiadomości prywatnych:', error);
+    // Ustaw domyślne wartości w przypadku błędu
+    this.pmSettingsForm = {
+      allow_private_messages: 1,
+      notify_on_pm: 1,
+      save_sent_messages: 1
+    };
+  }
+},
+    
+async loadPmStats() {
+  try {
+    const response = await axios.get('/pm-stats');
+    if (response.data) {
+      this.pmStats = response.data;
+    }
+  } catch (error) {
+    console.error('Błąd ładowania statystyk wiadomości:', error);
+    // Ustaw domyślne wartości w przypadku błędu
+    this.pmStats = {
+      received_count: 0,
+      sent_count: 0,
+      unread_count: 0,
+      saved_count: 0
+    };
+  }
+},
+    
+    async updatePmSettings() {
+      try {
+        const payload = {
+          allow_private_messages: Number(this.pmSettingsForm.allow_private_messages),
+          notify_on_pm: Number(this.pmSettingsForm.notify_on_pm),
+          save_sent_messages: Number(this.pmSettingsForm.save_sent_messages)
+        };
+        
+        await axios.put('/pm-settings', payload);
+        this.$message.success('Ustawienia wiadomości prywatnych zostały zaktualizowane');
+        this.$emit('profile-updated');
+      } catch (error) {
+        console.error('Błąd zapisu ustawień wiadomości:', error);
+        this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas zapisywania ustawień');
+      }
+    },
+    
+    composeNewMessage() {
+      this.$emit('compose-pm', this.user);
+      this.visible = false;
+    },
+    
+    goToMessages() {
+      this.$emit('navigate-to-messages');
+      this.visible = false;
+    },
+    
     getUserStatus(lastLogin, isCurrentUser) {
       if (!lastLogin) return 'offline';
       
@@ -255,9 +414,11 @@ export default {
         return 'offline';
       }
     },
+    
     formatDate(date) {
       return new Date(date).toLocaleString('pl-PL');
     },
+    
     async updateProfile() {
       try {
         await axios.put('/profile', this.editForm);
@@ -267,6 +428,7 @@ export default {
         this.$message.error(error.response?.data?.error || 'Wystąpił błąd');
       }
     },
+    
     changePassword() {
       this.$refs.passwordForm.validate(async (valid) => {
         if (valid) {
@@ -284,6 +446,7 @@ export default {
         }
       });
     },
+    
     async updateNotificationSettings() {
       try {
         // Konwersja wartości na liczby (dla bezpieczeństwa)
@@ -303,6 +466,7 @@ export default {
         this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas zapisywania ustawień');
       }
     },
+    
     handleAvatarSuccess(response) {
       if (response.success) {
         this.user.avatar = response.url;
@@ -312,18 +476,18 @@ export default {
         this.$message.error(response.message || 'Wystąpił błąd podczas przesyłania avatara');
       }
     },
+    
     handleAvatarError(error) {
       console.error('Avatar upload error:', error);
       
       // Sprawdź, czy to błąd autoryzacji
       if (error.status === 401) {
         this.$message.error('Sesja wygasła. Zaloguj się ponownie.');
-        // Możesz dodać automatyczne wylogowanie
-        // this.$store.dispatch('logout');
       } else {
         this.$message.error('Wystąpił błąd podczas przesyłania avatara');
       }
     },
+    
     beforeAvatarUpload(file) {
       const isJPGOrPNG = file.type === 'image/jpeg' || file.type === 'image/png';
       const isLt2M = file.size / 1024 / 1024 < 2;
@@ -372,6 +536,8 @@ export default {
 .user-info h3 {
   margin: 0 0 5px 0;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
 }
 
 .role {
@@ -407,5 +573,62 @@ export default {
 .status-text {
   font-weight: 500;
   margin-left: 5px;
+}
+
+.private-messages {
+  padding: 10px 0;
+}
+
+.pm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.pm-header h3 {
+  margin: 0;
+}
+
+.pm-stats {
+  margin-top: 20px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+  margin: 15px 0;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-radius: 6px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: bold;
+  color: var(--el-color-primary);
+}
+
+.view-all-btn {
+  margin-top: 10px;
+  width: 100%;
+  text-align: center;
+}
+
+.el-divider {
+  margin: 20px 0;
 }
 </style>
