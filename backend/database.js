@@ -40,6 +40,7 @@ function initDatabase() {
       signature TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       last_login DATETIME,
+      is_banned BOOLEAN DEFAULT 0,
       notification_settings TEXT DEFAULT '{"email_notifications": true, "push_notifications": true}',
       FOREIGN KEY (role_id) REFERENCES roles (id)
     )`);

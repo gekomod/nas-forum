@@ -5,10 +5,16 @@
         <Icon icon="mdi:account-group" />
         Zarządzanie użytkownikami
       </h2>
-      <el-button type="primary" @click="refreshUsers" :loading="loading">
-        <Icon icon="mdi:refresh" />
-        Odśwież
-      </el-button>
+      <div class="header-actions">
+        <el-button type="primary" @click="refreshUsers" :loading="loading">
+          <Icon icon="mdi:refresh" />
+          Odśwież
+        </el-button>
+        <el-button type="success" @click="showSendSystemMessageDialog">
+          <Icon icon="mdi:email-send" />
+          Wyślij wiadomość systemową
+        </el-button>
+      </div>
     </div>
 
     <el-alert
@@ -42,11 +48,22 @@
             {{ scope.row.last_login ? formatDate(scope.row.last_login) : 'Nigdy' }}
           </template>
         </el-table-column>
-        <el-table-column label="Operacje" width="200">
+        <el-table-column label="Status" width="100">
           <template #default="scope">
+            <el-tag :type="scope.row.is_banned ? 'danger' : 'success'">
+              {{ scope.row.is_banned ? 'Zablokowany' : 'Aktywny' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Operacje" width="280">
+          <template #default="scope">
+            <el-button size="small" @click="editUser(scope.row)">
+              <Icon icon="mdi:pencil" />
+              Edytuj
+            </el-button>
             <el-dropdown>
               <el-button size="small">
-                Akcje <Icon icon="mdi:chevron-down" />
+                Więcej <Icon icon="mdi:chevron-down" />
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
@@ -57,6 +74,17 @@
                     :disabled="scope.row.role_id === role.id">
                     <Icon icon="mdi:account-convert" />
                     Ustaw jako {{ role.name }}
+                  </el-dropdown-item>
+                  <el-dropdown-item 
+                    @click="toggleUserBan(scope.row)"
+                    :divided="true">
+                    <Icon :icon="scope.row.is_banned ? 'mdi:account-check' : 'mdi:account-cancel'" />
+                    {{ scope.row.is_banned ? 'Odblokuj' : 'Zablokuj' }}
+                  </el-dropdown-item>
+                  <el-dropdown-item 
+                    @click="sendUserMessage(scope.row)">
+                    <Icon icon="mdi:email-send" />
+                    Wyślij wiadomość
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -76,12 +104,104 @@
         </el-pagination>
       </div>
     </template>
+
+    <!-- Dialog edycji użytkownika -->
+    <el-dialog v-model="editDialogVisible" :title="'Edycja użytkownika: ' + editedUser.username" width="500px">
+      <el-form :model="editedUser" label-width="120px">
+        <el-form-item label="Nazwa użytkownika">
+          <el-input v-model="editedUser.username" />
+        </el-form-item>
+        <el-form-item label="Email">
+          <el-input v-model="editedUser.email" type="email" />
+        </el-form-item>
+        <el-form-item label="Rola">
+          <el-select v-model="editedUser.role_id" placeholder="Wybierz rolę">
+            <el-option
+              v-for="role in roles"
+              :key="role.id"
+              :label="role.name"
+              :value="role.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="Status">
+          <el-switch
+            v-model="editedUser.is_banned"
+            active-text="Zablokowany"
+            inactive-text="Aktywny"
+          />
+        </el-form-item>
+        <el-form-item label="Sygnatura">
+          <el-input v-model="editedUser.signature" type="textarea" :rows="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="editDialogVisible = false">Anuluj</el-button>
+          <el-button type="primary" @click="saveUserChanges" :loading="savingChanges">
+            Zapisz zmiany
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- Dialog wysyłania wiadomości systemowej -->
+    <el-dialog v-model="systemMessageDialogVisible" title="Wyślij wiadomość systemową" width="600px">
+      <el-form :model="systemMessage" label-width="120px">
+        <el-form-item label="Odbiorcy">
+          <el-select v-model="systemMessage.recipients" multiple placeholder="Wybierz odbiorców" style="width: 100%">
+            <el-option
+              v-for="user in users"
+              :key="user.id"
+              :label="user.username"
+              :value="user.id"
+            />
+            <el-option label="Wszyscy użytkownicy" value="all" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="Tytuł">
+          <el-input v-model="systemMessage.title" />
+        </el-form-item>
+        <el-form-item label="Wiadomość">
+          <el-input v-model="systemMessage.message" type="textarea" :rows="5" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="systemMessageDialogVisible = false">Anuluj</el-button>
+          <el-button type="primary" @click="sendSystemMessage" :loading="sendingMessage">
+            Wyślij wiadomość
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- Dialog wysyłania wiadomości do pojedynczego użytkownika -->
+    <el-dialog v-model="userMessageDialogVisible" :title="'Wyślij wiadomość do: ' + selectedUser.username" width="600px">
+      <el-form :model="userMessage" label-width="120px">
+        <el-form-item label="Tytuł">
+          <el-input v-model="userMessage.title" />
+        </el-form-item>
+        <el-form-item label="Wiadomość">
+          <el-input v-model="userMessage.message" type="textarea" :rows="5" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="userMessageDialogVisible = false">Anuluj</el-button>
+          <el-button type="primary" @click="sendUserMessageConfirm" :loading="sendingMessage">
+            Wyślij wiadomość
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import { Icon } from "@iconify/vue";
 import axios from "axios";
+import { ElMessage, ElMessageBox } from 'element-plus';
 
 export default {
   name: 'UsersManagement',
@@ -94,7 +214,39 @@ export default {
       currentPage: 1,
       pageSize: 10,
       totalUsers: 0,
-      hasPermission: false
+      hasPermission: false,
+      
+      // Edycja użytkownika
+      editDialogVisible: false,
+      editedUser: {
+        id: null,
+        username: '',
+        email: '',
+        role_id: null,
+        is_banned: false,
+        signature: ''
+      },
+      savingChanges: false,
+      
+      // Wiadomości systemowe
+      systemMessageDialogVisible: false,
+      systemMessage: {
+        recipients: [],
+        title: '',
+        message: ''
+      },
+      sendingMessage: false,
+      
+      // Wiadomości do użytkownika
+      userMessageDialogVisible: false,
+      selectedUser: {
+        id: null,
+        username: ''
+      },
+      userMessage: {
+        title: '',
+        message: ''
+      }
     };
   },
   mounted() {
@@ -102,7 +254,6 @@ export default {
   },
   methods: {
     async checkPermissions() {
-      // Sprawdź czy użytkownik jest zalogowany i ma uprawnienia
       const token = localStorage.getItem('authToken');
       if (!token) {
         this.hasPermission = false;
@@ -110,7 +261,6 @@ export default {
       }
 
       try {
-        // Sprawdź profil użytkownika aby zweryfikować uprawnienia
         const response = await axios.get('/profile');
         this.hasPermission = response.data.role_id === 1; // Tylko administratorzy
         if (this.hasPermission) {
@@ -160,6 +310,90 @@ export default {
         this.loadUsers(); // Odśwież listę
       } catch (error) {
         this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas zmiany roli');
+      }
+    },
+    async toggleUserBan(user) {
+      try {
+        const action = user.is_banned ? 'odblokować' : 'zablokować';
+        const confirmMessage = `Czy na pewno chcesz ${action} użytkownika ${user.username}?`;
+        
+        await ElMessageBox.confirm(confirmMessage, 'Potwierdzenie', {
+          confirmButtonText: 'Tak',
+          cancelButtonText: 'Anuluj',
+          type: 'warning',
+        });
+        
+        await axios.put(`/users/${user.id}/ban`, { 
+          is_banned: !user.is_banned 
+        });
+        
+        this.$message.success(`Użytkownik został ${user.is_banned ? 'odblokowany' : 'zablokowany'}`);
+        this.loadUsers(); // Odśwież listę
+      } catch (error) {
+        if (error !== 'cancel') {
+          this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas zmiany statusu użytkownika');
+        }
+      }
+    },
+    editUser(user) {
+      this.editedUser = { ...user };
+      this.editDialogVisible = true;
+    },
+    async saveUserChanges() {
+      this.savingChanges = true;
+      try {
+        await axios.put(`/users/${this.editedUser.id}`, this.editedUser);
+        this.$message.success('Zmiany zostały zapisane');
+        this.editDialogVisible = false;
+        this.loadUsers(); // Odśwież listę
+      } catch (error) {
+        this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas zapisywania zmian');
+      } finally {
+        this.savingChanges = false;
+      }
+    },
+    showSendSystemMessageDialog() {
+      this.systemMessage = {
+        recipients: [],
+        title: '',
+        message: ''
+      };
+      this.systemMessageDialogVisible = true;
+    },
+    async sendSystemMessage() {
+      this.sendingMessage = true;
+      try {
+        await axios.post('/admin/system-message', this.systemMessage);
+        this.$message.success('Wiadomość systemowa została wysłana');
+        this.systemMessageDialogVisible = false;
+      } catch (error) {
+        this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas wysyłania wiadomości');
+      } finally {
+        this.sendingMessage = false;
+      }
+    },
+    sendUserMessage(user) {
+      this.selectedUser = { ...user };
+      this.userMessage = {
+        title: '',
+        message: ''
+      };
+      this.userMessageDialogVisible = true;
+    },
+    async sendUserMessageConfirm() {
+      this.sendingMessage = true;
+      try {
+        await axios.post('/admin/user-message', {
+          user_id: this.selectedUser.id,
+          title: this.userMessage.title,
+          message: this.userMessage.message
+        });
+        this.$message.success(`Wiadomość do ${this.selectedUser.username} została wysłana`);
+        this.userMessageDialogVisible = false;
+      } catch (error) {
+        this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas wysyłania wiadomości');
+      } finally {
+        this.sendingMessage = false;
       }
     },
     refreshUsers() {
@@ -220,113 +454,9 @@ export default {
   gap: 10px;
 }
 
-.stats-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 15px;
-  margin-bottom: 20px;
-}
-
-.stat-card {
-  text-align: center;
-  padding: 20px;
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: var(--el-color-primary);
-  margin-bottom: 5px;
-}
-
-.stat-label {
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.category-icon {
-  font-size: 24px;
+.pagination {
+  margin-top: 20px;
   display: flex;
   justify-content: center;
-  align-items: center;
-}
-
-.category-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-}
-
-.category-stats span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.icon-preview {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-  padding: 8px;
-  background: var(--el-fill-color-light);
-  border-radius: 4px;
-}
-
-.preview-text {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.help-text {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 5px;
-}
-
-.icon-picker {
-  max-height: 400px;
-  display: flex;
-  flex-direction: column;
-}
-
-.icon-search {
-  margin-bottom: 15px;
-}
-
-.icon-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-  overflow-y: auto;
-}
-
-.icon-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.icon-item:hover {
-  background-color: var(--el-fill-color-light);
-  transform: translateY(-2px);
-}
-
-.icon-item.selected {
-  border-color: var(--el-color-primary);
-  background-color: var(--el-color-primary-light-9);
-}
-
-.icon-name {
-  font-size: 10px;
-  margin-top: 5px;
-  text-align: center;
-  word-break: break-all;
 }
 </style>

@@ -2306,6 +2306,111 @@ app.get('/api/category/:id/last-visit', authenticateToken, (req, res) => {
   );
 });
 
+// Aktualizacja danych użytkownika (dla administratora)
+app.put('/api/users/:id', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const userId = req.params.id;
+  const { username, email, role_id, is_banned, signature } = req.body;
+
+  db.run(
+    'UPDATE users SET username = ?, email = ?, role_id = ?, is_banned = ?, signature = ? WHERE id = ?',
+    [username, email, role_id, is_banned ? 1 : 0, signature, userId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Użytkownik nie istnieje' });
+      }
+      
+      res.json({ message: 'Dane użytkownika zostały zaktualizowane' });
+    }
+  );
+});
+
+// Blokowanie/odblokowywanie użytkownika
+app.put('/api/users/:id/ban', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const userId = req.params.id;
+  const { is_banned } = req.body;
+
+  db.run(
+    'UPDATE users SET is_banned = ? WHERE id = ?',
+    [is_banned ? 1 : 0, userId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Użytkownik nie istnieje' });
+      }
+      
+      const message = is_banned ? 'Użytkownik został zablokowany' : 'Użytkownik został odblokowany';
+      res.json({ message });
+    }
+  );
+});
+
+// Wysyłanie wiadomości systemowej
+app.post('/api/admin/system-message', authenticateToken, requirePermission('manage_users'), async (req, res) => {
+  const { recipients, title, message } = req.body;
+
+  try {
+    let userIds = [];
+    
+    if (recipients.includes('all')) {
+      // Pobierz wszystkich użytkowników
+      const users = await new Promise((resolve, reject) => {
+        db.all('SELECT id FROM users', (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows);
+        });
+      });
+      userIds = users.map(user => user.id);
+    } else {
+      userIds = recipients;
+    }
+
+    // Wyślij powiadomienia do każdego użytkownika
+    for (const userId of userIds) {
+      await createNotification(
+        userId,
+        'system',
+        title,
+        message,
+        null,
+        null,
+        req.user.id
+      );
+    }
+
+    res.json({ message: `Wiadomość systemowa została wysłana do ${userIds.length} użytkowników` });
+  } catch (error) {
+    res.status(500).json({ error: 'Błąd podczas wysyłania wiadomości systemowej' });
+  }
+});
+
+// Wysyłanie wiadomości do konkretnego użytkownika
+app.post('/api/admin/user-message', authenticateToken, requirePermission('manage_users'), async (req, res) => {
+  const { user_id, title, message } = req.body;
+
+  try {
+    await createNotification(
+      user_id,
+      'system',
+      title,
+      message,
+      null,
+      null,
+      req.user.id
+    );
+
+    res.json({ message: 'Wiadomość została wysłana' });
+  } catch (error) {
+    res.status(500).json({ error: 'Błąd podczas wysyłania wiadomości' });
+  }
+});
+
 function formatRegistrationDate(registerDate) {
   const register = new Date(registerDate);
   const now = new Date();
