@@ -2411,6 +2411,158 @@ app.post('/api/admin/user-message', authenticateToken, requirePermission('manage
   }
 });
 
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Nieprawidłowe ID użytkownika' });
+    }
+
+    // Pobierz dane użytkownika z bazy
+    const user = await db.run(
+      `SELECT 
+        id, 
+        username, 
+        email,
+        avatar,
+        role_id,
+        location,
+        website,
+        bio,
+        created_at,
+        last_login,
+        (SELECT COUNT(*) FROM posts WHERE user_id = users.id) as posts_count,
+        (SELECT COUNT(*) FROM threads WHERE user_id = users.id) as threads_count
+      FROM users 
+      WHERE id = $1`,
+      [userId]
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'Użytkownik nie znaleziony' });
+    }
+
+    // Zwróć dane użytkownika (bez wrażliwych informacji)
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email, // Możesz ukryć email jeśli chcesz
+      avatar: user.avatar,
+      role_id: user.role_id,
+      location: user.location,
+      website: user.website,
+      bio: user.bio,
+      created_at: user.created_at,
+      last_activity_at: user.last_login,
+      posts_count: user.posts_count,
+      threads_count: user.threads_count
+    });
+
+  } catch (error) {
+    console.error('Błąd pobierania profilu użytkownika:', error);
+    res.status(500).json({ error: 'Błąd serwera' });
+  }
+});
+
+// GET /api/users/:id/posts - Pobierz posty użytkownika (publiczne)
+app.get('/api/users/:id/posts', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = parseInt(req.query.offset) || 0;
+
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Nieprawidłowe ID użytkownika' });
+    }
+
+    const posts = await db.run(
+      `SELECT 
+        p.id,
+        p.content,
+        p.date,
+        p.thread_id,
+        t.title as thread_title,
+        c.name as category_name
+      FROM posts p
+      LEFT JOIN threads t ON p.thread_id = t.id
+      LEFT JOIN categories c ON t.category_id = c.id
+      WHERE p.user_id = $1
+      ORDER BY p.date DESC
+      LIMIT $2 OFFSET $3`,
+      [userId, limit, offset]
+    );
+
+    res.json(posts);
+
+  } catch (error) {
+    console.error('Błąd pobierania postów użytkownika:', error);
+    res.status(500).json({ error: 'Błąd serwera' });
+  }
+});
+
+// GET /api/users/:id/threads - Pobierz wątki użytkownika (publiczne)
+app.get('/api/users/:id/threads', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = parseInt(req.query.offset) || 0;
+
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Nieprawidłowe ID użytkownika' });
+    }
+
+    const threads = await db.run(
+      `SELECT 
+        t.id,
+        t.title,
+        t.date,
+        t.category_id,
+        c.name as category_name,
+        (SELECT COUNT(*) FROM posts WHERE thread_id = t.id) as posts_count
+      FROM threads t
+      LEFT JOIN categories c ON t.category_id = c.id
+      WHERE t.user_id = $1
+      ORDER BY t.date DESC
+      LIMIT $2 OFFSET $3`,
+      [userId, limit, offset]
+    );
+
+    res.json(threads);
+
+  } catch (error) {
+    console.error('Błąd pobierania wątków użytkownika:', error);
+    res.status(500).json({ error: 'Błąd serwera' });
+  }
+});
+
+// GET /api/users/:id/stats - Pobierz statystyki użytkownika (publiczne)
+app.get('/api/users/:id/stats', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Nieprawidłowe ID użytkownika' });
+    }
+
+    const stats = await db.run(
+      `SELECT 
+        (SELECT COUNT(*) FROM posts WHERE user_id = $1) as total_posts,
+        (SELECT COUNT(*) FROM threads WHERE user_id = $1) as total_threads,
+        (SELECT COUNT(*) FROM likes WHERE user_id = $1) as total_likes,
+        (SELECT COUNT(*) FROM posts WHERE user_id = $1 AND date >= NOW() - INTERVAL '7 days') as posts_this_week
+      `,
+      [userId]
+    );
+
+    res.json(stats);
+
+  } catch (error) {
+    console.error('Błąd pobierania statystyk użytkownika:', error);
+    res.status(500).json({ error: 'Błąd serwera' });
+  }
+});
+
 function formatRegistrationDate(registerDate) {
   const register = new Date(registerDate);
   const now = new Date();

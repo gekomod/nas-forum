@@ -41,6 +41,27 @@
             Panel Administracyjny
           </el-menu-item>
         </el-menu>
+
+  <div class="auth-buttons" v-if="!currentUser">
+    <el-button 
+      class="auth-btn login-btn" 
+      @click="showAuthModal(true)"
+      size="small"
+    >
+      <Icon icon="mdi:login" />
+      Zaloguj
+    </el-button>
+    <el-button 
+      class="auth-btn register-btn" 
+      @click="showAuthModal(false)"
+      type="primary"
+      size="small"
+    >
+      <Icon icon="mdi:account-plus" />
+      Rejestracja
+    </el-button>
+  </div>
+
       </div>
       
       <div class="forum-content">
@@ -89,6 +110,12 @@
 	  />
         
         <NotificationsPage v-if="currentView === 'notifications'" />
+        
+        <UserProfilePage 
+	  v-if="currentView === 'user-profile'"
+	  :userId="selectedUserId"
+	  @edit-profile="showProfileModal = true"
+	/>
         
         <PageUsers v-if="currentView !== 'categories'"/>
       
@@ -149,6 +176,7 @@ import AdminPanel from './components/AdminPanel.vue';
 import PageUsers from './components/PageUsers.vue';
 import NotificationsPage from './components/NotificationsPage.vue';
 import PrivateMessages from './components/PrivateMessages.vue';
+import UserProfilePage from './components/UserProfilePage.vue';
 import { Icon } from "@iconify/vue";
 import axios from 'axios'
 
@@ -173,6 +201,7 @@ export default {
     PageUsers,
     NotificationsPage,
     PrivateMessages,
+    UserProfilePage,
     Icon
   },
   data() {
@@ -191,6 +220,7 @@ export default {
       showCreateThreadDialog: false,
       selectedCategory: null,
       showAuthModalVisible: false,
+      selectedUserId: null,
       authModalIsLogin: true,
       showProfileModal: false,
       showCategoryModal: false,
@@ -368,6 +398,22 @@ async loadStats() {
       this.showAuthModalVisible = true;
     },
     
+    handleUrl() {
+      const path = window.location.pathname;
+      if (path.startsWith('/profile/')) {
+        const userId = path.split('/')[2];
+        if (userId) {
+          this.selectedUserId = parseInt(userId);
+          this.currentView = 'user-profile';
+        }
+      }
+    },
+    
+    showUserProfile(userId) {
+      this.selectedUserId = userId;
+      this.currentView = 'user-profile';
+    },
+    
     async handleLoginSuccess(user) {
       this.currentUser = user;
       const token = localStorage.getItem('authToken')
@@ -437,6 +483,9 @@ async loadStats() {
 	}
   },
   async mounted() {
+    // Obsługa URL przy załadowaniu
+    this.handleUrl();
+  
     // Sprawdź zapisane preferencje przy załadowaniu
     const savedMode = localStorage.getItem('darkMode');
     if (savedMode) {
@@ -477,8 +526,70 @@ async loadStats() {
 
 <style src="./styles.css"></style>
 <style>
-.main-navigation {
+ .main-navigation {
   margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+
+.nav-menu {
+  background: var(--card-bg);
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(31, 38, 135, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--card-border);
+  flex: 1;
+}
+
+.nav-menu .el-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-buttons {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.auth-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--card-border);
+  transition: all 0.3s ease;
+}
+
+.auth-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(31, 38, 135, 0.15);
+}
+
+.login-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.login-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+
+.register-btn {
+  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
+  border: none;
+}
+
+.register-btn:hover {
+  background: linear-gradient(135deg, var(--el-color-primary-light-3), var(--el-color-primary));
+  box-shadow: 0 4px 15px rgba(64, 158, 255, 0.3);
 }
 
 .nav-menu {
@@ -495,4 +606,6 @@ async loadStats() {
   align-items: center;
   gap: 8px;
 }
+
+
 </style>

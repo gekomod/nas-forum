@@ -152,6 +152,8 @@ export default {
     'show-profile', 
     'show-admin-panel',
     'show-categories',
+    'show-notifications',
+    'view-thread',
     'show-private-messages',
     'logout'
   ],
