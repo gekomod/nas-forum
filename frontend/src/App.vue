@@ -111,15 +111,17 @@
         
         <NotificationsPage v-if="currentView === 'notifications'" />
         
-        <UserProfilePage 
+	<UserProfilePage 
 	  v-if="currentView === 'user-profile'"
 	  :userId="selectedUserId"
+	  @back="currentView = 'categories'"
 	  @edit-profile="showProfileModal = true"
+	  @view-thread="handleViewThread"
 	/>
         
-        <PageUsers v-if="currentView !== 'categories'"/>
+        <PageUsers v-if="!['user-profile', 'category', 'categories', 'private-messages', 'notifications', 'admin-panel'].includes(currentView)"/>
       
-      <ForumStats v-if="currentView === 'categories'" :stats="stats" />
+      <ForumStats v-if="!['user-profile', 'private-messages', 'notifications', 'admin-panel'].includes(currentView)" :stats="stats" />
       </div>
     </div>
 

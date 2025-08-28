@@ -97,16 +97,22 @@
                   </div>
                 </div>
                 
-                <div class="thread-meta">
-                  <span class="thread-author">
-                    <Icon icon="mdi:account-outline" />
-                    {{ thread.author }}
-                  </span>
-                  <span class="thread-date">
-                    <Icon icon="mdi:clock-outline" />
-                    {{ formatDate(thread.date) }}
-                  </span>
-                </div>
+		<div class="thread-meta">
+		  <span class="thread-author">
+		    <Icon icon="mdi:account-outline" />
+		    <a 
+		      href="javascript:void(0)" 
+		      class="user-profile-link"
+		      @click="$emit('view-profile', thread.user_id || getUserIdFromAuthor(thread.author))"
+		    >
+		      {{ thread.author }}
+		    </a>
+		  </span>
+		  <span class="thread-date">
+		    <Icon icon="mdi:clock-outline" />
+		    {{ formatDate(thread.date) }}
+		  </span>
+		</div>
               </div>
             </div>
 
@@ -519,6 +525,12 @@ selectThread(thread) {
       const diffMonths = Math.floor(diffDays / 30);
       if (diffMonths === 1) return '1 miesiąc';
       return `${diffMonths} miesięcy`;
+    },
+    getUserIdFromAuthor(authorName) {
+    // Ta metoda może być potrzebna jeśli thread nie ma user_id
+    // Możesz dodać logikę mapowania nazwy użytkownika na ID
+    // Na przykład poprzez wyszukanie w liście użytkowników
+    return null; // Tymczasowo zwracamy null
     }
   },
   mounted() {
@@ -539,6 +551,18 @@ selectThread(thread) {
   font-size: 14px;
   color: var(--el-text-color-secondary);
   flex-wrap: wrap;
+}
+
+.user-profile-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.user-profile-link:hover {
+  color: var(--el-color-primary-light-3);
+  text-decoration: underline;
 }
 
 .breadcrumb-link {

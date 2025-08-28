@@ -2,11 +2,10 @@
   <div class="user-profile-page">
     <div class="profile-header">
       <el-button 
-        icon="el-icon-arrow-left" 
         @click="$emit('back')" 
         class="back-btn"
       >
-        Wróć
+       <Icon icon="f7:arrow-left" /> Wróć
       </el-button>
       <h1>Profil użytkownika</h1>
     </div>
@@ -32,12 +31,12 @@
       </div>
 
       <!-- Profile content -->
-      <div v-else-if="user" class="profile-details">
+      <div v-else-if="user && user.id" class="profile-details">
         <div class="profile-card">
           <div class="avatar-section">
             <el-avatar 
               :size="120" 
-              :src="user.avatar || '/default-avatar.png'"
+              :src="getAvatarUrl(user.avatar)" 
               class="profile-avatar"
             />
             <div class="avatar-actions" v-if="isOwnProfile">
@@ -49,8 +48,8 @@
                 :on-error="handleAvatarError"
                 :headers="uploadHeaders"
               >
-                <el-button size="small" icon="el-icon-camera">
-                  Zmień avatar
+                <el-button size="small">
+                 <Icon icon="fluent-color:camera-16" /> Zmień avatar
                 </el-button>
               </el-upload>
             </div>
@@ -118,10 +117,9 @@
             <div class="profile-actions" v-if="isOwnProfile">
               <el-button 
                 type="primary" 
-                icon="el-icon-edit" 
                 @click="editProfile"
               >
-                Edytuj profil
+               <Icon icon="fluent-color:edit-16" /> Edytuj profil
               </el-button>
             </div>
           </div>
@@ -147,6 +145,9 @@
                     <div class="activity-meta">
                       <span class="activity-time">
                         {{ formatRelativeTime(post.created_at) }}
+                      </span>
+                      <span class="activity-category" v-if="post.category_name">
+                        w {{ post.category_name }}
                       </span>
                     </div>
                   </div>
@@ -174,6 +175,9 @@
                       <span class="activity-stats">
                         {{ thread.posts_count }} postów
                       </span>
+                      <span class="activity-category" v-if="thread.category_name">
+                        w {{ thread.category_name }}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -182,15 +186,24 @@
           </el-tabs>
         </div>
       </div>
+
+      <!-- User not found -->
+      <div v-else-if="!loading" class="user-not-found">
+        <el-empty description="Użytkownik nie znaleziony" />
+      </div>
     </div>
   </div>
 </template>
 
 <script>
 import axios from 'axios';
+import { Icon } from "@iconify/vue";
 
 export default {
   name: 'UserProfilePage',
+  components: {
+    Icon
+  },
   props: {
     userId: {
       type: [String, Number],
@@ -202,8 +215,7 @@ export default {
       user: null,
       userActivity: {
         posts: [],
-        threads: [],
-        likes: []
+        threads: []
       },
       loading: true,
       error: '',
@@ -215,8 +227,12 @@ export default {
   },
   computed: {
     currentUser() {
-      // Zakładając, że currentUser jest w props lub store
-      return this.$parent.currentUser;
+      // Pobierz currentUser z localStorage lub z głównego komponentu
+      try {
+        return JSON.parse(localStorage.getItem('userData') || '{}');
+      } catch (e) {
+        return {};
+      }
     },
     isOwnProfile() {
       if (!this.user || !this.currentUser) return false;
@@ -237,49 +253,66 @@ export default {
     async loadUserProfile() {
       this.loading = true;
       this.error = '';
+      this.user = null;
       
       try {
-        const userId = this.userId || this.currentUser?.id;
+        const userId = this.userId;
         if (!userId) {
           this.error = 'Nie znaleziono użytkownika';
           return;
         }
-
-        // Zakładając, że endpoint to /users/{id}
-        const response = await axios.get(`/users/${userId}`);
-        this.user = response.data;
         
-        // Load user activity
-        await this.loadUserActivity(userId);
+        // Użyj istniejącego endpointu /users/:id
+        const response = await axios.get(`/users/${userId}`);
+        
+        if (response.data && response.data.id) {
+          this.user = response.data;
+          await this.loadUserActivity();
+        } else {
+          this.error = 'Użytkownik nie znaleziony';
+        }
       } catch (error) {
         console.error('Error loading user profile:', error);
-        this.error = error.response?.data?.error || 'Błąd podczas ładowania profilu';
+        if (error.response?.status === 404) {
+          this.error = 'Użytkownik nie znaleziony';
+        } else {
+          this.error = error.response?.data?.error || 'Błąd podczas ładowania profilu';
+        }
       } finally {
         this.loading = false;
       }
     },
 
-    async loadUserActivity(userId) { 
+    async loadUserActivity() {
       try {
-
+        const userId = this.user.id;
         
-        // Zakładając, że endpointy to:
-        // /users/{id}/posts
-        // /users/{id}/threads
-        const [postsRes, threadsRes] = await Promise.all([
-          axios.get(`/users/${userId}/posts`).catch(() => ({ data: [] })),
-          axios.get(`/users/${userId}/threads`).catch(() => ({ data: [] }))
+        // Użyj endpointów z Twojego API
+        const [postsResponse, threadsResponse] = await Promise.all([
+          axios.get(`/users/${userId}/posts`).catch(error => {
+            console.error('Error loading posts:', error);
+            return { data: [] };
+          }),
+          axios.get(`/users/${userId}/threads`).catch(error => {
+            console.error('Error loading threads:', error);
+            return { data: [] };
+          })
         ]);
 
         this.userActivity = {
-          posts: postsRes.data || [],
-          threads: threadsRes.data || [],
-          likes: [] // Tymczasowo puste
+          posts: postsResponse.data || [],
+          threads: threadsResponse.data || []
         };
       } catch (error) {
         console.error('Error loading user activity:', error);
-        this.userActivity = { posts: [], threads: [], likes: [] };
+        this.userActivity = { posts: [], threads: [] };
       }
+    },
+
+    getAvatarUrl(avatarPath) {
+      if (!avatarPath) return '/default-avatar.png';
+      if (avatarPath.startsWith('http')) return avatarPath;
+      return avatarPath.startsWith('/') ? avatarPath : `/${avatarPath}`;
     },
 
     beforeAvatarUpload(file) {
@@ -298,10 +331,10 @@ export default {
     },
 
     handleAvatarSuccess(response, file) {
-      if (response.avatar) {
-        this.user.avatar = response.avatar;
+      if (response.avatarUrl) {
+        this.user.avatar = response.avatarUrl;
+        this.$message.success('Avatar został zaktualizowany');
       }
-      this.$message.success('Avatar został zaktualizowany');
     },
 
     handleAvatarError(error) {
@@ -322,39 +355,49 @@ export default {
         1: 'Administrator',
         2: 'Moderator',
         3: 'Użytkownik',
-        4: 'Gość'
+        4: 'Zbanowany',
+        5: 'VIP',
+        6: 'Redaktor'
       };
       return roles[roleId] || 'Użytkownik';
     },
 
     formatDate(dateString) {
       if (!dateString) return 'Nieznana';
-      return new Date(dateString).toLocaleDateString('pl-PL', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      try {
+        return new Date(dateString).toLocaleDateString('pl-PL', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } catch (e) {
+        return dateString;
+      }
     },
 
     formatRelativeTime(dateString) {
       if (!dateString) return '';
       
-      const date = new Date(dateString);
-      const now = new Date();
-      const diffMs = now - date;
-      const diffMins = Math.floor(diffMs / (1000 * 60));
-      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      
-      if (diffMins < 1) return 'teraz';
-      if (diffMins < 60) return `${diffMins} min temu`;
-      if (diffHours < 24) return `${diffHours} godz. temu`;
-      if (diffDays === 1) return 'wczoraj';
-      if (diffDays < 30) return `${diffDays} dni temu`;
-      
-      return this.formatDate(dateString);
+      try {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / (1000 * 60));
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        
+        if (diffMins < 1) return 'teraz';
+        if (diffMins < 60) return `${diffMins} min temu`;
+        if (diffHours < 24) return `${diffHours} godz. temu`;
+        if (diffDays === 1) return 'wczoraj';
+        if (diffDays < 30) return `${diffDays} dni temu`;
+        
+        return this.formatDate(dateString);
+      } catch (e) {
+        return dateString;
+      }
     },
 
     truncateContent(content, length) {
@@ -372,7 +415,7 @@ export default {
     }
   },
   mounted() {
-    if (!this.userId && this.currentUser) {
+    if (!this.userId && this.currentUser && this.currentUser.id) {
       this.loadUserProfile();
     }
   }
@@ -381,9 +424,9 @@ export default {
 
 <style scoped>
 .user-profile-page {
-  width: 100%;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 20px;
+  width: 100%;
 }
 
 .profile-header {
@@ -515,6 +558,21 @@ export default {
   color: #67c23a;
 }
 
+.role-4 {
+  color: #909399;
+  font-style: italic;
+}
+
+.role-5 {
+  color: #ffc107;
+  font-weight: bold;
+}
+
+.role-6 {
+  color: #9c27b0;
+  font-weight: bold;
+}
+
 .profile-actions {
   display: flex;
   gap: 15px;
@@ -537,6 +595,7 @@ export default {
   border-radius: 8px;
   border: 1px solid var(--card-border);
   transition: all 0.3s ease;
+  cursor: pointer;
 }
 
 .activity-item:hover {
@@ -547,15 +606,7 @@ export default {
 
 .activity-content h4 {
   margin: 0 0 10px 0;
-}
-
-.thread-link {
   color: var(--el-color-primary);
-  text-decoration: none;
-}
-
-.thread-link:hover {
-  text-decoration: underline;
 }
 
 .post-content {
@@ -569,6 +620,7 @@ export default {
   gap: 15px;
   font-size: 12px;
   color: var(--text-muted);
+  flex-wrap: wrap;
 }
 
 .activity-time {
@@ -577,6 +629,10 @@ export default {
 
 .activity-stats {
   color: var(--el-color-primary);
+}
+
+.activity-category {
+  color: var(--el-color-success);
 }
 
 .empty-state {
@@ -610,6 +666,11 @@ export default {
   
   .profile-actions {
     justify-content: center;
+  }
+  
+  .activity-meta {
+    flex-direction: column;
+    gap: 5px;
   }
 }
 </style>

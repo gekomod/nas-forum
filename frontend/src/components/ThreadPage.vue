@@ -68,7 +68,13 @@
         <div class="post-sidebar">
           <UserAvatar :user="post.author" :status="post.author_status" :avatar="post.author_avatar" />
           <div class="user-info">
-            <div class="username">{{ post.author }}</div>
+                        <a 
+              :href="`/profile/${post.author_id}`" 
+              class="username profile-link"
+            >
+              {{ post.author }}
+            </a>
+            
             <div class="user-status" :class="post.author_status">
               {{ getUserStatusText(post.author_status) }}
             </div>
@@ -91,7 +97,7 @@
                 <Icon icon="mdi:message-text" />
                 Postów: {{ post.author_posts_count }}
               </div>
-              
+
               <!-- Przycisk wysyłania wiadomości prywatnej -->
               <div class="user-detail pm-action" v-if="user && user.id !== post.author_id">
                 <el-tooltip 
@@ -1336,6 +1342,34 @@ async sendPrivateMessage() {
   
   .pm-modal-footer .el-button {
     width: 100%;
+  }
+}
+
+.profile-link {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s ease;
+  display: inline-block;
+  margin-bottom: 5px;
+}
+
+.profile-link:hover {
+  color: var(--el-color-primary);
+  text-decoration: underline;
+}
+
+/* Dla ciemnego motywu */
+@media (prefers-color-scheme: dark) {
+  .profile-link:hover {
+    color: var(--el-color-primary-light-3);
+  }
+}
+
+/* Responsywność */
+@media (max-width: 768px) {
+  .profile-link {
+    font-size: 14px;
   }
 }
 </style>
