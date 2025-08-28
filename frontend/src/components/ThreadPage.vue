@@ -68,12 +68,20 @@
         <div class="post-sidebar">
           <UserAvatar :user="post.author" :status="post.author_status" :avatar="post.author_avatar" />
           <div class="user-info">
-                        <a 
+            <a 
               :href="`/profile/${post.author_id}`" 
               class="username profile-link"
             >
               {{ post.author }}
             </a>
+            
+            <!-- Reputacja użytkownika -->
+            <div class="user-reputation" v-if="post.author_reputation !== undefined">
+              <Icon icon="mdi:star" class="reputation-icon" />
+              <span :class="getReputationClass(post.author_reputation)">
+                {{ post.author_reputation > 0 ? '+' : '' }}{{ post.author_reputation }}
+              </span>
+            </div>
             
             <div class="user-status" :class="post.author_status">
               {{ getUserStatusText(post.author_status) }}
@@ -116,26 +124,44 @@
             </div>
           </div>
         </div>
-        <div class="post-content">
-          <a :id="`post-${post.id}`" class="post-anchor"></a>
-          <div v-if="!post.editing" class="post-body" v-html="compiledMarkdown(post.content)" />
-          
-          <!-- Edycja posta -->
-          <div v-else class="edit-container">
-            <v-md-editor 
-              v-model="post.editContent" 
-              :disabled-menus="[]" 
-              height="200px"
-              placeholder="Edytuj swoją odpowiedź..."
-              left-toolbar="undo redo clear | h bold italic strikethrough quote | ul ol table hr | link image code"
+
+        <div class="post-main-content">
+          <!-- Nagłówek posta z systemem reputacji -->
+
+            <ReputationSystem
+              v-if="user"
+              :target-type="'post'"
+              :target-id="post.id"
+              :user-id="post.author_id"
+              :current-user="user"
+              :initial-score="post.reputation_score || 0"
+              :initial-vote="post.user_vote"
+              @vote-cast="handleVoteCast($event, post)"
+              class="post-reputation-system"
             />
-            <div class="edit-actions">
-              <el-button @click="cancelEdit(post)">
-                Anuluj
-              </el-button>
-              <el-button type="primary" @click="saveEdit(post)" :loading="post.saving">
-                Zapisz zmiany
-              </el-button>
+            
+            <a :id="`post-${post.id}`" class="post-anchor"></a>
+
+          <div class="post-content-body">
+            <div v-if="!post.editing" class="post-body" v-html="compiledMarkdown(post.content)" />
+            
+            <!-- Edycja posta -->
+            <div v-else class="edit-container">
+              <v-md-editor 
+                v-model="post.editContent" 
+                :disabled-menus="[]" 
+                height="200px"
+                placeholder="Edytuj swoją odpowiedź..."
+                left-toolbar="undo redo clear | h bold italic strikethrough quote | ul ol table hr | link image code"
+              />
+              <div class="edit-actions">
+                <el-button @click="cancelEdit(post)">
+                  Anuluj
+                </el-button>
+                <el-button type="primary" @click="saveEdit(post)" :loading="post.saving">
+                  Zapisz zmiany
+                </el-button>
+              </div>
             </div>
           </div>
           
@@ -280,12 +306,14 @@ import axios from "axios";
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import UserAvatar from './UserAvatar.vue';
+import ReputationSystem from './ReputationSystem.vue';
 
 export default {
   name: 'ThreadPage',
   components: {
     Icon,
-    UserAvatar
+    UserAvatar,
+    ReputationSystem
   },
   props: {
     threadData: Object,
@@ -339,50 +367,57 @@ export default {
     this.checkWatchStatus();
   },
   methods: {
-async loadThread() {
-  try {
-    const response = await axios.get(`/thread/${this.threadData.id}`);
-    this.thread = response.data.thread;
-    this.posts = response.data.posts.map(post => ({
-      ...post,
-      editing: false,
-      editContent: post.content,
-      saving: false
-    }));
-    
-    // OZNACZ JAKO PRZECZYTANE
-    await this.markAsRead();
-    
-    // Zwiększ licznik wyświetleń
-    await axios.put(`/thread/${this.threadData.id}/view`);
-  } catch (error) {
-    console.error('Error loading thread:', error);
-    this.$message.error('Błąd podczas ładowania wątku');
-  }
-},
+    async loadThread() {
+      try {
+        const response = await axios.get(`/thread/${this.threadData.id}`, {
+          params: {
+            include_reputation: this.user ? 1 : 0
+          }
+        });
+        this.thread = response.data.thread;
+        this.posts = response.data.posts.map(post => ({
+          ...post,
+          editing: false,
+          editContent: post.content,
+          saving: false,
+          reputation_score: post.reputation_score || 0,
+          user_vote: post.user_vote || null,
+          author_reputation: post.author_reputation || 0
+        }));
+        
+        // OZNACZ JAKO PRZECZYTANE
+        await this.markAsRead();
+        
+        // Zwiększ licznik wyświetleń
+        await axios.put(`/thread/${this.threadData.id}/view`);
+      } catch (error) {
+        console.error('Error loading thread:', error);
+        this.$message.error('Błąd podczas ładowania wątku');
+      }
+    },
 
-async markAsRead() {
-  if (this.user) {
-    // Dla zalogowanych - zapisz w bazie
-    try {
-      await axios.post('/mark-read', { 
-        threadId: this.threadData.id,
-        postIds: this.posts.map(post => post.id),
-        categoryId: this.thread.category_id
-      });
-    } catch (error) {
-      console.error('Error marking as read:', error);
-    }
-  } else {
-    // Dla niezalogowanych - zapisz w localStorage
-    const lastVisitTimes = JSON.parse(localStorage.getItem('categoryLastVisit') || '{}');
-    lastVisitTimes[this.thread.category_id] = Date.now();
-    localStorage.setItem('categoryLastVisit', JSON.stringify(lastVisitTimes));
-  }
-  
-  // Powiadom komponent CategoriesList o zmianie
-  this.$emit('category-visited', this.thread.category_id);
-},
+    async markAsRead() {
+      if (this.user) {
+        // Dla zalogowanych - zapisz w bazie
+        try {
+          await axios.post('/mark-read', { 
+            threadId: this.threadData.id,
+            postIds: this.posts.map(post => post.id),
+            categoryId: this.thread.category_id
+          });
+        } catch (error) {
+          console.error('Error marking as read:', error);
+        }
+      } else {
+        // Dla niezalogowanych - zapisz w localStorage
+        const lastVisitTimes = JSON.parse(localStorage.getItem('categoryLastVisit') || '{}');
+        lastVisitTimes[this.thread.category_id] = Date.now();
+        localStorage.setItem('categoryLastVisit', JSON.stringify(lastVisitTimes));
+      }
+      
+      // Powiadom komponent CategoriesList o zmianie
+      this.$emit('category-visited', this.thread.category_id);
+    },
     
     async markThreadAsRead(threadId) {
       if (this.user) {
@@ -683,57 +718,67 @@ async markAsRead() {
     },
     
     // Otwórz modal do wysyłania wiadomości prywatnej
-openPrivateMessageModal(recipientName, recipientId) {
-  
-  if (!this.user) {
-    this.$message.warning('Musisz być zalogowany, aby wysyłać wiadomości prywatne');
-    return;
-  }
-  
-  this.pmRecipientId = recipientId; // TUTAJ PRZEKAZUJEMY ID, a nie nazwę
-  this.pmRecipientName = recipientName;
-  this.pmContent = '';
-  this.pmPreview = false;
-  this.pmModalVisible = true;
-},
+    openPrivateMessageModal(recipientName, recipientId) {
+      if (!this.user) {
+        this.$message.warning('Musisz być zalogowany, aby wysyłać wiadomości prywatne');
+        return;
+      }
+      
+      this.pmRecipientId = recipientId;
+      this.pmRecipientName = recipientName;
+      this.pmContent = '';
+      this.pmPreview = false;
+      this.pmModalVisible = true;
+    },
     
-async sendPrivateMessage() {
-  if (!this.pmContent.trim()) {
-    this.$message.warning('Treść wiadomości nie może być pusta');
-    return;
-  }
-  
-  this.pmSending = true;
-  try {
-    // Wysyłamy tylko receiver_id i content (bez subject)
-    const response = await axios.post('/private-messages/send', {
-      receiver_id: this.pmRecipientId,
-      content: this.pmContent
-      // subject jest pomijany, bo baza go nie obsługuje
-    });
-    
-    this.$message.success('Wiadomość prywatna została wysłana');
-    this.pmModalVisible = false;
-    this.pmContent = '';
-    this.pmSubject = ''; // Czyścimy, ale i tak nie jest używany
-  } catch (error) {
-    console.error('Error sending private message:', error);
-    
-    // Dokładniejsza diagnostyka błędów
-    if (error.response) {
-      console.error('Response error:', error.response.data);
-      this.$message.error(error.response.data.error || 'Błąd podczas wysyłania wiadomości');
-    } else if (error.request) {
-      console.error('Request error:', error.request);
-      this.$message.error('Błąd połączenia z serwerem');
-    } else {
-      this.$message.error('Nieoczekiwany błąd');
-    }
-  } finally {
-    this.pmSending = false;
-  }
-}
+    async sendPrivateMessage() {
+      if (!this.pmContent.trim()) {
+        this.$message.warning('Treść wiadomości nie może być pusta');
+        return;
+      }
+      
+      this.pmSending = true;
+      try {
+        const response = await axios.post('/private-messages/send', {
+          receiver_id: this.pmRecipientId,
+          content: this.pmContent
+        });
+        
+        this.$message.success('Wiadomość prywatna została wysłana');
+        this.pmModalVisible = false;
+        this.pmContent = '';
+      } catch (error) {
+        console.error('Error sending private message:', error);
+        
+        if (error.response) {
+          console.error('Response error:', error.response.data);
+          this.$message.error(error.response.data.error || 'Błąd podczas wysyłania wiadomości');
+        } else if (error.request) {
+          console.error('Request error:', error.request);
+          this.$message.error('Błąd połączenia z serwerem');
+        } else {
+          this.$message.error('Nieoczekiwany błąd');
+        }
+      } finally {
+        this.pmSending = false;
+      }
+    },
 
+    // Nowe metody dla systemu reputacji
+    getReputationClass(reputation) {
+      if (reputation > 0) return 'reputation-positive';
+      if (reputation < 0) return 'reputation-negative';
+      return 'reputation-neutral';
+    },
+    
+    handleVoteCast(voteData, post) {
+      // Aktualizuj wynik posta lokalnie
+      const postIndex = this.posts.findIndex(p => p.id === voteData.targetId);
+      if (postIndex !== -1) {
+        this.posts[postIndex].reputation_score = voteData.newScore;
+        this.posts[postIndex].user_vote = voteData.voteType;
+      }
+    }
   }
 }
 </script>
@@ -807,7 +852,7 @@ async sendPrivateMessage() {
   border-radius: 8px;
   margin-bottom: 10px;
   transition: all 0.2s ease;
-  position: relative; /* Potrzebne dla pozycjonowania numeru */
+  position: relative;
 }
 
 .post-even {
@@ -819,6 +864,21 @@ async sendPrivateMessage() {
   background-color: var(--post-bg-odd, #ffffff);
   border: 1px solid var(--post-border-odd, #e2e8f0);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+html.dark .post-even {
+    background-color: var(--post-bg-even, #242424);
+    border: 1px solid var(--post-border-even, #2a2a2a);
+}
+
+html.dark .post-odd {
+  background-color: var(--post-bg-odd, #2c2c2c);
+  border: 1px solid var(--post-border-odd, #505050);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+html.dark .post-sidebar {
+    border-right: 4px solid #303030;
 }
 
 .post:hover {
@@ -848,10 +908,11 @@ async sendPrivateMessage() {
 }
 
 .post-sidebar {
-  width: 140px;
+  width: 160px;
   flex-shrink: 0;
   text-align: center;
   margin-right: 20px;
+  padding-right: 20px;
   border-right: 4px solid #e9e9ef;
 }
 
@@ -863,6 +924,37 @@ async sendPrivateMessage() {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 5px;
+}
+
+/* Styl dla reputacji użytkownika */
+.user-reputation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  background: var(--el-fill-color-light);
+  border-radius: 12px;
+}
+
+.reputation-icon {
+  color: #ffc107;
+  font-size: 14px;
+}
+
+.reputation-positive {
+  color: var(--el-color-success);
+}
+
+.reputation-negative {
+  color: var(--el-color-danger);
+}
+
+.reputation-neutral {
+  color: var(--text-secondary);
 }
 
 .user-status {
@@ -892,21 +984,51 @@ async sendPrivateMessage() {
   margin-top: 5px;
 }
 
-.post-content {
+.post-main-content {
   flex: 1;
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative; /* Potrzebne dla absolutnego pozycjonowania */
+  padding-top: 5px; /* Dodaj trochę miejsca na górze */
+}
+
+.post-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  min-height: 32px;
+}
+
+.post-reputation-system {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--el-border-color-light);
 }
 
 .post-anchor {
   position: absolute;
-  top: -70px; /* Offset dla fixed header */
+  top: -70px;
   visibility: hidden;
+}
+
+.post-content-body {
+  flex: 1;
+  padding-top: 0; /* Usuń padding, treść zaczyna się od góry */
 }
 
 .post-body {
   line-height: 1.6;
   color: var(--text-primary);
   min-height: 50px;
+  padding-right: 60px; /* Zostaw miejsce na system reputacji */
 }
 
 .post-body :deep(*) {
@@ -931,13 +1053,13 @@ async sendPrivateMessage() {
   background: #1e1e1e;
   padding: 16px;
   border-radius: 6px;
-  overflow-x: auto; /* Dodaj przewijanie poziome */
+  overflow-x: auto;
   margin: 16px 0;
   border: 1px solid var(--el-border-color-light);
   position: relative;
-  max-width: 100%; /* Zapobiega rozszerzaniu poza kontener */
-  white-space: pre-wrap; /* Zawijanie wierszy */
-  word-wrap: break-word; /* Łamanie długich słów */
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .post-body :deep(pre)::before {
@@ -960,8 +1082,8 @@ async sendPrivateMessage() {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   line-height: 1.5;
   font-size: 14px;
-  white-space: pre-wrap; /* Zawijanie kodu */
-  word-wrap: break-word; /* Łamanie długich linii */
+  white-space: pre-wrap;
+  word-wrap: break-word;
   display: block;
   overflow-x: auto;
 }
@@ -1287,7 +1409,8 @@ async sendPrivateMessage() {
   
   .post {
     padding: 15px;
-    padding-left: 50px; /* Więcej miejsca na mobile */
+    padding-left: 50px;
+    flex-direction: column;
   }
   
   .post-number {
@@ -1302,7 +1425,6 @@ async sendPrivateMessage() {
   }
   
   .post-sidebar {
-    margin-left: 0;
     width: 100%;
     margin-right: 0;
     margin-bottom: 15px;
@@ -1311,13 +1433,27 @@ async sendPrivateMessage() {
     padding-bottom: 15px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 15px;
     text-align: left;
   }
   
   .user-info {
     margin-top: 0;
     text-align: left;
+    flex: 1;
+  }
+  
+  .user-reputation {
+    justify-content: flex-start;
+  }
+  
+  .post-header {
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .post-reputation-system {
+    margin-left: 0;
   }
   
   .post-footer {
@@ -1345,6 +1481,23 @@ async sendPrivateMessage() {
   }
 }
 
+/* Dla bardzo małych ekranów */
+@media (max-width: 480px) {
+  .post-sidebar {
+    flex-direction: column;
+    text-align: center;
+    gap: 10px;
+  }
+  
+  .user-info {
+    text-align: center;
+  }
+  
+  .user-reputation {
+    justify-content: center;
+  }
+}
+
 .profile-link {
   color: var(--text-primary);
   text-decoration: none;
@@ -1363,13 +1516,6 @@ async sendPrivateMessage() {
 @media (prefers-color-scheme: dark) {
   .profile-link:hover {
     color: var(--el-color-primary-light-3);
-  }
-}
-
-/* Responsywność */
-@media (max-width: 768px) {
-  .profile-link {
-    font-size: 14px;
   }
 }
 </style>

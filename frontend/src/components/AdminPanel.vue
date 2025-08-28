@@ -27,6 +27,10 @@
         <Icon icon="mdi:message-text" />
         Posty
       </el-menu-item>
+      <el-menu-item index="reputation-management" v-if="isAdmin">
+        <Icon icon="mdi:star" />
+        Reputacja
+      </el-menu-item>
     </el-menu>
     
     <div class="admin-content">
@@ -34,6 +38,7 @@
       <CategoryManagement v-if="activeSubView === 'categories-management'" />
       <ThreadsManagement v-if="activeSubView === 'threads-management'" />
       <PostsManagement v-if="activeSubView === 'posts-management'" />
+      <ReputationManagement v-if="activeSubView === 'reputation-management' && isAdmin" />
       
       <div v-if="!activeSubView" class="admin-welcome">
         <el-empty description="Wybierz sekcję do zarządzania z menu powyżej" />
@@ -48,6 +53,7 @@ import UsersManagement from './UsersManagement.vue';
 import CategoryManagement from './CategoryManagement.vue';
 import ThreadsManagement from './ThreadsManagement.vue';
 import PostsManagement from './PostsManagement.vue';
+import ReputationManagement from './ReputationManagement.vue';
 
 export default {
   name: 'AdminPanel',
@@ -56,7 +62,8 @@ export default {
     UsersManagement,
     CategoryManagement,
     ThreadsManagement,
-    PostsManagement
+    PostsManagement,
+    ReputationManagement
   },
   props: {
     isAdmin: Boolean

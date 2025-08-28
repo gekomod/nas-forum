@@ -44,6 +44,7 @@ function initDatabase() {
       location TEXT DEFAULT NULL,
       website TEXT DEFAULT NULL,
       bio TEXT DEFAULT NULL,
+      reputation INTEGER DEFAULT 0,
       notification_settings TEXT DEFAULT '{"email_notifications": true, "push_notifications": true}',
       FOREIGN KEY (role_id) REFERENCES roles (id)
     )`);
@@ -185,6 +186,22 @@ function initDatabase() {
       save_sent_messages BOOLEAN DEFAULT 1,
       FOREIGN KEY (user_id) REFERENCES users (id)
     )`);
+    
+    db.run(`CREATE TABLE IF NOT EXISTS reputation_votes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      target_type TEXT NOT NULL CHECK (target_type IN ('post', 'thread')),
+      target_id INTEGER NOT NULL,
+      vote_type TEXT NOT NULL CHECK (vote_type IN ('upvote', 'downvote')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id),
+      UNIQUE(user_id, target_type, target_id)
+    );`);
+    
+    db.run(`CREATE INDEX IF NOT EXISTS idx_reputation_votes_target ON reputation_votes (target_type, target_id);
+      CREATE INDEX IF NOT EXISTS idx_reputation_votes_user ON reputation_votes (user_id);
+      CREATE INDEX IF NOT EXISTS idx_reputation_votes_created ON reputation_votes (created_at);`);
 
     db.run(`CREATE TABLE IF NOT EXISTS auth_tokens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

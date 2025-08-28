@@ -406,27 +406,31 @@ app.get('/api/category/:id/threads', (req, res) => {
 // Pobierz wątek - dostępny dla wszystkich
 app.get('/api/thread/:id', (req, res) => {
   const threadId = req.params.id;
+  const userId = req.user?.id;
   
-	const threadQuery = `
-	  SELECT t.*, u.last_login as author_last_login, u.created_at as author_created_at,
-		 u.avatar as author_avatar,
-		 (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count
-	  FROM threads t 
-	  LEFT JOIN users u ON t.author = u.username
-	  WHERE t.id = ?`;
+  const threadQuery = `
+    SELECT t.*, u.last_login as author_last_login, u.created_at as author_created_at,
+           u.avatar as author_avatar, u.reputation as author_reputation,
+           (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count
+           ${userId ? ', (SELECT vote_type FROM reputation_votes WHERE user_id = ? AND target_type = "thread" AND target_id = t.id) as user_vote' : ''}
+    FROM threads t 
+    LEFT JOIN users u ON t.author = u.username
+    WHERE t.id = ?`;
 
-const postsQuery = `
-  SELECT p.*, u.id as author_id, u.last_login as author_last_login, 
-         u.created_at as author_created_at, u.avatar as author_avatar,
-         (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count
-  FROM posts p 
-  LEFT JOIN users u ON p.author = u.username
-  WHERE p.thread_id = ? 
-  ORDER BY p.date ASC
-`;
+  const postsQuery = `
+    SELECT p.*, u.id as author_id, u.last_login as author_last_login, 
+           u.created_at as author_created_at, u.avatar as author_avatar, u.reputation as author_reputation,
+           (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as author_posts_count,
+           (SELECT SUM(CASE WHEN vote_type = 'upvote' THEN 1 ELSE -1 END) FROM reputation_votes WHERE target_type = 'post' AND target_id = p.id) as reputation_score
+           ${userId ? ', (SELECT vote_type FROM reputation_votes WHERE user_id = ? AND target_type = "post" AND target_id = p.id) as user_vote' : ''}
+    FROM posts p 
+    LEFT JOIN users u ON p.author = u.username
+    WHERE p.thread_id = ? 
+    ORDER BY p.date ASC
+  `;
   
   // Pobierz wątek
-  db.get(threadQuery, [threadId], (err, thread) => {
+  db.get(threadQuery, userId ? [userId, threadId] : [threadId], (err, thread) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -436,7 +440,7 @@ const postsQuery = `
     }
     
     // Pobierz posty
-    db.all(postsQuery, [threadId], (err, posts) => {
+    db.all(postsQuery, userId ? [userId, threadId] : [threadId], (err, posts) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
@@ -447,14 +451,17 @@ const postsQuery = `
           author_status: getUserStatus(thread.author_last_login),
           author_register_date: formatRegistrationDate(thread.author_created_at),
           author_last_activity: formatRelativeTime(thread.author_last_login),
-          author_posts_count: thread.author_posts_count || 0
+          author_posts_count: thread.author_posts_count || 0,
+          reputation_score: thread.reputation_score || 0
         },
         posts: posts.map(post => ({
           ...post,
           author_status: getUserStatus(post.author_last_login),
           author_register_date: formatRegistrationDate(post.author_created_at),
           author_last_activity: formatRelativeTime(post.author_last_login),
-          author_posts_count: post.author_posts_count || 0
+          author_posts_count: post.author_posts_count || 0,
+          reputation_score: post.reputation_score || 0,
+          user_vote: post.user_vote || null
         }))
       });
     });
@@ -2583,6 +2590,407 @@ app.get('/api/users/:id/stats', (req, res) => {
     console.error('Błąd pobierania statystyk użytkownika:', error);
     res.status(500).json({ error: 'Błąd serwera' });
   }
+});
+
+// System reputacji - głosowanie
+app.post('/api/reputation/vote', authenticateToken, async (req, res) => {
+  const { target_type, target_id, vote_type } = req.body;
+  const userId = req.user.id;
+
+  try {
+    // Sprawdź czy cel głosowania istnieje
+    let targetExists = false;
+    let targetOwnerId = null;
+
+    if (target_type === 'post') {
+      const post = await new Promise((resolve, reject) => {
+        db.get('SELECT user_id FROM posts WHERE id = ?', [target_id], (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        });
+      });
+      targetExists = !!post;
+      targetOwnerId = post?.user_id;
+    } else if (target_type === 'thread') {
+      const thread = await new Promise((resolve, reject) => {
+        db.get('SELECT user_id FROM threads WHERE id = ?', [target_id], (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        });
+      });
+      targetExists = !!thread;
+      targetOwnerId = thread?.user_id;
+    }
+
+    if (!targetExists) {
+      return res.status(404).json({ error: 'Cel głosowania nie istnieje' });
+    }
+
+    // Nie można głosować na siebie
+    if (targetOwnerId === userId) {
+      return res.status(400).json({ error: 'Nie możesz głosować na siebie' });
+    }
+
+    // Sprawdź czy użytkownik już głosował
+    const existingVote = await new Promise((resolve, reject) => {
+      db.get(
+        'SELECT id, vote_type FROM reputation_votes WHERE user_id = ? AND target_type = ? AND target_id = ?',
+        [userId, target_type, target_id],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        }
+      );
+    });
+
+    let newScore = 0;
+
+    if (existingVote) {
+      // Jeśli użytkownik już głosował
+      if (existingVote.vote_type === vote_type) {
+        // Usuń głos jeśli kliknięto ten sam przycisk
+        await new Promise((resolve, reject) => {
+          db.run(
+            'DELETE FROM reputation_votes WHERE id = ?',
+            [existingVote.id],
+            function(err) {
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+        });
+
+        // Aktualizuj reputację użytkownika
+        const pointsChange = vote_type === 'upvote' ? -1 : 1;
+        await updateUserReputation(targetOwnerId, pointsChange);
+      } else {
+        // Zmień głos
+        await new Promise((resolve, reject) => {
+          db.run(
+            'UPDATE reputation_votes SET vote_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [vote_type, existingVote.id],
+            function(err) {
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+        });
+
+        // Aktualizuj reputację użytkownika
+        const pointsChange = vote_type === 'upvote' ? 2 : -2; // +2 lub -2 bo zmiana głosu
+        await updateUserReputation(targetOwnerId, pointsChange);
+      }
+    } else if (vote_type) {
+      // Nowy głos
+      await new Promise((resolve, reject) => {
+        db.run(
+          'INSERT INTO reputation_votes (user_id, target_type, target_id, vote_type) VALUES (?, ?, ?, ?)',
+          [userId, target_type, target_id, vote_type],
+          function(err) {
+            if (err) reject(err);
+            else resolve();
+          }
+        );
+      });
+
+      // Aktualizuj reputację użytkownika
+      const pointsChange = vote_type === 'upvote' ? 1 : -1;
+      await updateUserReputation(targetOwnerId, pointsChange);
+    }
+
+    // Pobierz aktualny wynik
+    const score = await new Promise((resolve, reject) => {
+      db.get(
+        `SELECT 
+          SUM(CASE WHEN vote_type = 'upvote' THEN 1 ELSE -1 END) as score
+         FROM reputation_votes 
+         WHERE target_type = ? AND target_id = ?`,
+        [target_type, target_id],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row?.score || 0);
+        }
+      );
+    });
+
+    res.json({ new_score: score, message: 'Głos został zapisany' });
+
+  } catch (error) {
+    console.error('Error processing vote:', error);
+    res.status(500).json({ error: 'Błąd podczas przetwarzania głosu' });
+  }
+});
+
+// Pobierz wynik reputacji dla celu
+app.get('/api/reputation/score', (req, res) => {
+  const { target_type, target_id } = req.query;
+
+  db.get(
+    `SELECT 
+      SUM(CASE WHEN vote_type = 'upvote' THEN 1 ELSE -1 END) as score
+     FROM reputation_votes 
+     WHERE target_type = ? AND target_id = ?`,
+    [target_type, target_id],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.json({ score: row?.score || 0 });
+    }
+  );
+});
+
+// Pobierz statystyki reputacji użytkownika
+app.get('/api/users/:userId/reputation/stats', (req, res) => {
+  const userId = req.params.userId;
+
+  const query = `
+    SELECT 
+      SUM(CASE WHEN vote_type = 'upvote' THEN 1 ELSE 0 END) as upvotes,
+      SUM(CASE WHEN vote_type = 'downvote' THEN 1 ELSE 0 END) as downvotes,
+      COUNT(*) as total_votes
+    FROM reputation_votes 
+    WHERE target_id IN (
+      SELECT id FROM posts WHERE user_id = ?
+      UNION
+      SELECT id FROM threads WHERE user_id = ?
+    )
+  `;
+
+  db.get(query, [userId, userId], (err, stats) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json({
+      upvotes: stats?.upvotes || 0,
+      downvotes: stats?.downvotes || 0,
+      given: 0 // Możesz dodać logikę dla przyznanych punktów później
+    });
+  });
+});
+
+// Pobierz historię reputacji użytkownika
+app.get('/api/users/:userId/reputation/history', (req, res) => {
+  const userId = req.params.userId;
+  const { page = 1, limit = 10, type, source } = req.query;
+  const offset = (page - 1) * limit;
+
+  let query = `
+    SELECT 
+      rv.*,
+      u.username as voter_username,
+      p.content as post_content,
+      t.title as thread_title,
+      CASE 
+        WHEN rv.target_type = 'post' THEN p.content
+        WHEN rv.target_type = 'thread' THEN t.title
+        ELSE NULL 
+      END as reason
+    FROM reputation_votes rv
+    LEFT JOIN users u ON rv.user_id = u.id
+    LEFT JOIN posts p ON rv.target_type = 'post' AND rv.target_id = p.id
+    LEFT JOIN threads t ON rv.target_type = 'thread' AND rv.target_id = t.id
+    WHERE p.user_id = ? OR t.user_id = ?
+  `;
+
+  const params = [userId, userId];
+  const countParams = [userId, userId];
+
+  if (type) {
+    query += ' AND rv.vote_type = ?';
+    params.push(type);
+    countParams.push(type);
+  }
+
+  if (source) {
+    query += ' AND rv.target_type = ?';
+    params.push(source);
+    countParams.push(source);
+  }
+
+  query += ' ORDER BY rv.created_at DESC LIMIT ? OFFSET ?';
+  params.push(parseInt(limit), offset);
+
+  // Pobierz całkowitą liczbę
+  let countQuery = `
+    SELECT COUNT(*) as total 
+    FROM reputation_votes rv
+    LEFT JOIN posts p ON rv.target_type = 'post' AND rv.target_id = p.id
+    LEFT JOIN threads t ON rv.target_type = 'thread' AND rv.target_id = t.id
+    WHERE p.user_id = ? OR t.user_id = ?
+  `;
+
+  if (type) countQuery += ' AND rv.vote_type = ?';
+  if (source) countQuery += ' AND rv.target_type = ?';
+
+  db.get(countQuery, countParams, (err, countResult) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    // Pobierz historię
+    db.all(query, params, (err, history) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const formattedHistory = history.map(item => ({
+        id: item.id,
+        type: item.vote_type,
+        points: item.vote_type === 'upvote' ? 1 : -1,
+        reason: item.reason ? item.reason.substring(0, 100) + '...' : 'Brak opisu',
+        source: item.target_type,
+        related_id: item.target_id,
+        created_at: item.created_at,
+        voter: item.voter_username
+      }));
+
+      res.json({
+        items: formattedHistory,
+        total: countResult.total,
+        page: parseInt(page),
+        totalPages: Math.ceil(countResult.total / limit)
+      });
+    });
+  });
+});
+
+// Cofnij punktację (dla adminów/moderatorów)
+app.post('/api/reputation/:voteId/reverse', authenticateToken, requirePermission('manage_content'), (req, res) => {
+  const voteId = req.params.voteId;
+
+  db.get('SELECT * FROM reputation_votes WHERE id = ?', [voteId], (err, vote) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!vote) {
+      return res.status(404).json({ error: 'Głos nie istnieje' });
+    }
+
+    // Znajdź właściciela celu
+    let targetOwnerQuery = '';
+    if (vote.target_type === 'post') {
+      targetOwnerQuery = 'SELECT user_id FROM posts WHERE id = ?';
+    } else if (vote.target_type === 'thread') {
+      targetOwnerQuery = 'SELECT user_id FROM threads WHERE id = ?';
+    }
+
+    db.get(targetOwnerQuery, [vote.target_id], (err, target) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (target) {
+        // Aktualizuj reputację użytkownika
+        const pointsChange = vote.vote_type === 'upvote' ? -1 : 1;
+        updateUserReputation(target.user_id, pointsChange);
+      }
+
+      // Usuń głos
+      db.run('DELETE FROM reputation_votes WHERE id = ?', [voteId], function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        res.json({ message: 'Punktacja została cofnięta' });
+      });
+    });
+  });
+});
+
+// Funkcja pomocnicza do aktualizacji reputacji użytkownika
+function updateUserReputation(userId, points) {
+  db.run(
+    'UPDATE users SET reputation = COALESCE(reputation, 0) + ? WHERE id = ?',
+    [points, userId],
+    (err) => {
+      if (err) {
+        console.error('Error updating user reputation:', err);
+      }
+    }
+  );
+}
+
+// Admin - statystyki reputacji
+app.get('/api/admin/reputation/stats', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const query = `
+    SELECT 
+      SUM(CASE WHEN vote_type = 'upvote' THEN 1 ELSE 0 END) as total_upvotes,
+      SUM(CASE WHEN vote_type = 'downvote' THEN 1 ELSE 0 END) as total_downvotes,
+      COUNT(DISTINCT user_id) as active_voters
+    FROM reputation_votes
+  `;
+
+  db.get(query, (err, stats) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json({
+      total_upvotes: stats.total_upvotes || 0,
+      total_downvotes: stats.total_downvotes || 0,
+      active_voters: stats.active_voters || 0
+    });
+  });
+});
+
+// Admin - ostatnie głosy
+app.get('/api/admin/reputation/recent-votes', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const query = `
+    SELECT 
+      rv.*,
+      u.username as voter,
+      CASE 
+        WHEN rv.target_type = 'post' THEN p.content
+        WHEN rv.target_type = 'thread' THEN t.title
+        ELSE 'Unknown' 
+      END as target
+    FROM reputation_votes rv
+    JOIN users u ON rv.user_id = u.id
+    LEFT JOIN posts p ON rv.target_type = 'post' AND rv.target_id = p.id
+    LEFT JOIN threads t ON rv.target_type = 'thread' AND rv.target_id = t.id
+    ORDER BY rv.created_at DESC
+    LIMIT 50
+  `;
+
+  db.all(query, (err, votes) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json(votes);
+  });
+});
+
+// Admin - top użytkownicy
+app.get('/api/admin/reputation/top-users', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const query = `
+    SELECT 
+      u.id,
+      u.username,
+      u.reputation,
+      (SELECT COUNT(*) FROM reputation_votes rv 
+       JOIN posts p ON rv.target_type = 'post' AND rv.target_id = p.id 
+       WHERE p.user_id = u.id AND rv.vote_type = 'upvote') as upvotes,
+      (SELECT COUNT(*) FROM reputation_votes rv 
+       JOIN posts p ON rv.target_type = 'post' AND rv.target_id = p.id 
+       WHERE p.user_id = u.id AND rv.vote_type = 'downvote') as downvotes
+    FROM users u
+    WHERE u.reputation IS NOT NULL
+    ORDER BY u.reputation DESC
+    LIMIT 20
+  `;
+
+  db.all(query, (err, users) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json(users);
+  });
 });
 
 function formatRegistrationDate(registerDate) {
