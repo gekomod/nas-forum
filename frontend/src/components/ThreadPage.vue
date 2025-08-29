@@ -478,6 +478,18 @@ export default {
         this.$message.success('Odpowiedź została dodana');
         this.replyContent = '';
         this.previewMode = false;
+        
+        // Wyzwól aktualizację osiągnięć
+        try {
+	  await axios.post('/user-activity', {
+	    activity_type: 'post_created',
+	    target_id: this.thread.id,
+	    target_type: 'post'
+	  });
+	} catch (error) {
+	  console.error('Error logging activity:', error);
+	}
+        
         await this.loadThread(); // Odśwież wątek
       } catch (error) {
         console.error('Error submitting reply:', error);
@@ -574,6 +586,17 @@ export default {
         await axios.put(endpoint, {
           content: post.editContent
         });
+        
+        // Wyzwól aktualizację osiągnięć
+	try {
+	  await axios.post('/user-activity', {
+	    activity_type: 'post_edited',
+	    target_id: post.id,
+	    target_type: 'post'
+	  });
+	} catch (error) {
+	  console.error('Error logging activity:', error);
+	}
         
         post.content = post.editContent;
         post.editing = false;

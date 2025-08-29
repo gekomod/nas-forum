@@ -98,10 +98,12 @@
         />
 
         <!-- Użyj nowego komponentu AdminPanel -->
-        <AdminPanel 
-          v-if="currentView === 'admin-panel'" 
-          :is-admin="isAdmin"
-        />
+    <AdminPanel 
+      v-if="currentView === 'admin-panel'" 
+      :is-admin="isAdmin"
+      :current-user-id="currentUser ? currentUser.id : null"
+      :current-user="currentUser"
+    />
         
           <PrivateMessages 
 	    v-if="currentView === 'private-messages'"
@@ -137,6 +139,7 @@
     <UserProfile 
       :show="showProfileModal" 
       :user="currentUser"
+      :current-user="currentUser"
       @update:show="showProfileModal = $event"
       @profile-updated="loadUserProfile"
     />

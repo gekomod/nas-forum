@@ -183,6 +183,15 @@
                 </div>
               </div>
             </el-tab-pane>
+            
+            
+      <el-tab-pane label="Osiągnięcia" name="achievements">
+        <AchievementsSystem 
+          :userId="userId" 
+          :currentUser="userProfile"
+        />
+      </el-tab-pane>
+      
           </el-tabs>
         </div>
       </div>
@@ -198,11 +207,13 @@
 <script>
 import axios from 'axios';
 import { Icon } from "@iconify/vue";
+import AchievementsSystem from './AchievementsSystem.vue';
 
 export default {
   name: 'UserProfilePage',
   components: {
-    Icon
+    Icon,
+    AchievementsSystem
   },
   props: {
     userId: {

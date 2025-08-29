@@ -202,6 +202,90 @@ function initDatabase() {
     db.run(`CREATE INDEX IF NOT EXISTS idx_reputation_votes_target ON reputation_votes (target_type, target_id);
       CREATE INDEX IF NOT EXISTS idx_reputation_votes_user ON reputation_votes (user_id);
       CREATE INDEX IF NOT EXISTS idx_reputation_votes_created ON reputation_votes (created_at);`);
+      
+	// System osiągnięć
+	db.run(`CREATE TABLE IF NOT EXISTS achievements (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  name TEXT NOT NULL,
+	  description TEXT NOT NULL,
+	  icon TEXT NOT NULL,
+	  category_id INTEGER NOT NULL,
+	  rarity TEXT NOT NULL DEFAULT 'common',
+	  points INTEGER NOT NULL DEFAULT 0,
+	  requirement INTEGER NOT NULL DEFAULT 1,
+	  requirements_text TEXT NOT NULL,
+	  is_hidden BOOLEAN DEFAULT 0,
+	  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	  FOREIGN KEY (category_id) REFERENCES achievement_categories (id)
+	)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS achievement_categories (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  name TEXT NOT NULL,
+	  icon TEXT NOT NULL,
+	  description TEXT,
+	  position INTEGER DEFAULT 0
+	)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS user_achievements (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  user_id INTEGER NOT NULL,
+	  achievement_id INTEGER NOT NULL,
+	  progress INTEGER DEFAULT 0,
+	  unlocked BOOLEAN DEFAULT 0,
+	  unlocked_at DATETIME,
+	  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	  FOREIGN KEY (user_id) REFERENCES users (id),
+	  FOREIGN KEY (achievement_id) REFERENCES achievements (id),
+	  UNIQUE(user_id, achievement_id)
+	)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS achievement_progress (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  user_id INTEGER NOT NULL,
+	  achievement_id INTEGER NOT NULL,
+	  progress_data TEXT,
+	  last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+	  FOREIGN KEY (user_id) REFERENCES users (id),
+	  FOREIGN KEY (achievement_id) REFERENCES achievements (id),
+	  UNIQUE(user_id, achievement_id)
+	)`);
+
+	// Indeksy dla lepszej wydajności
+	db.run('CREATE INDEX IF NOT EXISTS idx_user_achievements_user ON user_achievements (user_id)');
+	db.run('CREATE INDEX IF NOT EXISTS idx_user_achievements_achievement ON user_achievements (achievement_id)');
+	db.run('CREATE INDEX IF NOT EXISTS idx_achievement_progress_user ON achievement_progress (user_id)');
+	
+	db.run(`CREATE TABLE IF NOT EXISTS user_activities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    activity_type VARCHAR(100) NOT NULL,
+    target_id INTEGER,
+    target_type VARCHAR(50),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)`);
+
+       db.run(`CREATE INDEX IF NOT EXISTS idx_user_activities_user_id ON user_activities(user_id)`);
+       db.run('CREATE INDEX IF NOT EXISTS idx_user_activities_type ON user_activities(activity_type)');
+       db.run('CREATE INDEX IF NOT EXISTS idx_user_activities_created ON user_activities(created_at)');
+       
+       db.run(`CREATE TRIGGER IF NOT EXISTS after_post_insert
+		AFTER INSERT ON posts
+		FOR EACH ROW
+		BEGIN
+		    INSERT INTO user_activities (user_id, activity_type, target_id, target_type)
+		    VALUES (NEW.user_id, 'post_created', NEW.id, 'post');
+		END;`);
+		
+       db.run(`CREATE TRIGGER IF NOT EXISTS after_thread_insert
+AFTER INSERT ON threads
+FOR EACH ROW
+BEGIN
+    INSERT INTO user_activities (user_id, activity_type, target_id, target_type)
+    VALUES (NEW.user_id, 'thread_created', NEW.id, 'thread');
+END;`);
 
     db.run(`CREATE TABLE IF NOT EXISTS auth_tokens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -279,6 +363,34 @@ function insertSampleData() {
 
     if (row.count === 0) {
       console.log("Inserting sample data...");
+      
+	// Przykładowe kategorie osiągnięć
+	const achievementCategories = [
+	  ['Aktywność', 'mdi:forum', 'Osiągnięcia związane z aktywnością na forum', 1],
+	  ['Tworzenie treści', 'mdi:creation', 'Osiągnięcia za tworzenie treści', 2],
+	  ['Społeczność', 'mdi:account-group', 'Osiągnięcia społecznościowe', 3],
+	  ['Ekspert', 'mdi:star', 'Osiągnięcia eksperckie', 4]
+	];
+
+	// Przykładowe osiągnięcia
+	const achievements = [
+	  ['Pierwszy post', 'Napisz swój pierwszy post na forum', 'mdi:comment', 2, 'common', 10, 1, 'Napisz jeden post'],
+	  ['Aktywny użytkownik', 'Napisz 10 postów', 'mdi:comment-multiple', 1, 'uncommon', 25, 10, 'Napisz 10 postów'],
+	  ['Ekspert forum', 'Napisz 100 postów', 'mdi:comment-account', 1, 'rare', 50, 100, 'Napisz 100 postów'],
+	  ['Pierwszy wątek', 'Utwórz swój pierwszy wątek', 'mdi:forum', 2, 'common', 15, 1, 'Utwórz jeden wątek']
+	];
+
+	// Wstaw kategorie osiągnięć
+	const insertCategory_arch = db.prepare(`INSERT INTO achievement_categories (name, icon, description, position) VALUES (?, ?, ?, ?)`);
+	achievementCategories.forEach(category => {
+	  insertCategory_arch.run(category);
+	});
+
+	// Wstaw osiągnięcia
+	const insertAchievement = db.prepare(`INSERT INTO achievements (name, description, icon, category_id, rarity, points, requirement, requirements_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+	achievements.forEach(achievement => {
+	  insertAchievement.run(achievement);
+	});
       
       // Wstaw kategorie
       const categories = [

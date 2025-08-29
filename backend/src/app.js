@@ -514,6 +514,33 @@ app.post('/api/threads', authenticateToken, (req, res) => {
                 [user.username, date, category_id]
               );
               
+              // REJESTRACJA AKTYWNOŚCI - DODAJ TE LINIJKI
+db.run(
+  'INSERT INTO user_activities (user_id, activity_type, target_id, target_type) VALUES (?, ?, ?, ?)',
+  [req.user.id, 'thread_created', threadId, 'thread'],
+  (err) => {
+    if (err) {
+      console.error('Błąd rejestracji aktywności:', err);
+    }
+  }
+);
+
+// Sprawdź osiągnięcia ASYNCHRONICZNIE (nie blokuj odpowiedzi)
+setTimeout(() => {
+  checkAchievements(req.user.id, 'thread_created', threadId, 'thread')
+    .then(unlockedAchievements => {
+      if (unlockedAchievements.length > 0) {
+        unlockedAchievements.forEach(achievement => {
+          sendAchievementNotification(req.user.id, achievement);
+          console.log(`Achievement unlocked: ${achievement.name}`);
+        });
+      }
+    })
+    .catch(err => {
+      console.error('Błąd sprawdzania osiągnięć:', err);
+    });
+}, 1000);
+              
               res.json({ id: threadId, message: 'Wątek został utworzony' });
             }
           );
@@ -629,6 +656,29 @@ app.post('/api/thread/:id/posts', authenticateToken, (req, res) => {
               console.error('Błąd podczas wysyłania powiadomień o wzmiankach:', error);
             }
           }
+          
+      db.run(
+        'INSERT INTO user_activities (user_id, activity_type, target_id, target_type) VALUES (?, ?, ?, ?)',
+        [req.user.id, 'post_created', postId, 'post'],
+        (err) => {
+          if (err) {
+            console.error('Błąd rejestracji aktywności:', err);
+          }
+          
+          // Sprawdź osiągnięcia
+          checkAchievements(req.user.id, 'post_created', postId, 'post')
+            .then(unlockedAchievements => {
+              if (unlockedAchievements.length > 0) {
+                unlockedAchievements.forEach(achievement => {
+                  sendAchievementNotification(req.user.id, achievement);
+                });
+              }
+            })
+            .catch(err => {
+              console.error('Błąd sprawdzania osiągnięć:', err);
+            });
+        }
+      );
           
           res.json({ 
             id: postId, 
@@ -2992,6 +3042,829 @@ app.get('/api/admin/reputation/top-users', authenticateToken, requirePermission(
     res.json(users);
   });
 });
+
+// System osiągnięć - pobierz osiągnięcia użytkownika
+app.get('/api/users/:userId/achievements', authenticateToken, (req, res) => {
+  const userId = req.params.userId;
+  const currentUserId = req.user.id;
+
+  // Sprawdź czy użytkownik próbuje pobrać swoje osiągnięcia
+  if (parseInt(userId) !== currentUserId) {
+    return res.status(403).json({ error: 'Brak uprawnień do przeglądania osiągnięć tego użytkownika' });
+  }
+
+  const query = `
+    SELECT 
+      a.*,
+      ac.name as category_name,
+      ac.icon as category_icon,
+      ua.progress,
+      ua.unlocked,
+      ua.unlocked_at,
+      CASE 
+        WHEN ua.unlocked THEN 100 
+        ELSE ROUND((ua.progress * 100.0 / a.requirement), 0) 
+      END as progress_percentage,
+      (SELECT COUNT(*) FROM user_achievements WHERE achievement_id = a.id AND unlocked = 1) as global_unlocked,
+      (SELECT ROUND((COUNT(*) * 100.0 / (SELECT COUNT(*) FROM users)), 1) 
+       FROM user_achievements 
+       WHERE achievement_id = a.id AND unlocked = 1) as global_percentage
+    FROM achievements a
+    LEFT JOIN achievement_categories ac ON a.category_id = ac.id
+    LEFT JOIN user_achievements ua ON a.id = ua.achievement_id AND ua.user_id = ?
+    ORDER BY ac.position, a.id
+  `;
+
+  const categoriesQuery = `
+    SELECT * FROM achievement_categories ORDER BY position
+  `;
+
+  // Pobierz kategorie
+  db.all(categoriesQuery, (err, categories) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    // Pobierz osiągnięcia
+    db.all(query, [userId], (err, achievements) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      // Formatuj dane
+      const formattedAchievements = achievements.map(achievement => ({
+        id: achievement.id,
+        name: achievement.name,
+        description: achievement.description,
+        icon: achievement.icon,
+        category_id: achievement.category_id,
+        category_name: achievement.category_name,
+        rarity: achievement.rarity,
+        points: achievement.points,
+        requirement: achievement.requirement,
+        requirements_text: achievement.requirements_text,
+        progress: achievement.progress || 0,
+        progressPercentage: achievement.progress_percentage || 0,
+        unlocked: achievement.unlocked || false,
+        unlocked_at: achievement.unlocked_at,
+        global_unlocked: achievement.global_unlocked || 0,
+        global_percentage: achievement.global_percentage || 0
+      }));
+
+      const unlockedAchievements = formattedAchievements.filter(a => a.unlocked);
+
+      res.json({
+        achievements: formattedAchievements,
+        unlocked_achievements: unlockedAchievements,
+        categories: categories
+      });
+    });
+  });
+});
+
+// System osiągnięć - odblokuj osiągnięcie (dla testów lub systemu)
+app.post('/api/achievements/unlock', authenticateToken, (req, res) => {
+  const { achievement_id } = req.body;
+  const userId = req.user.id;
+
+  // Sprawdź czy osiągnięcie istnieje
+  db.get('SELECT * FROM achievements WHERE id = ?', [achievement_id], (err, achievement) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!achievement) {
+      return res.status(404).json({ error: 'Osiągnięcie nie istnieje' });
+    }
+
+    // Sprawdź czy użytkownik już ma to osiągnięcie
+    db.get('SELECT * FROM user_achievements WHERE user_id = ? AND achievement_id = ?', [userId, achievement_id], (err, userAchievement) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (userAchievement && userAchievement.unlocked) {
+        return res.status(400).json({ error: 'Osiągnięcie jest już odblokowane' });
+      }
+
+      // Odblokuj osiągnięcie
+      const now = new Date().toISOString();
+      
+      if (userAchievement) {
+        // Aktualizuj istniejący rekord
+        db.run(
+          'UPDATE user_achievements SET unlocked = 1, unlocked_at = ?, progress = ? WHERE user_id = ? AND achievement_id = ?',
+          [now, achievement.requirement, userId, achievement_id],
+          function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            // Pobierz szczegóły odblokowanego osiągnięcia
+            getAchievementDetails(achievement_id, userId, (achievementDetails) => {
+              res.json({
+                message: 'Osiągnięcie odblokowane',
+                achievement: achievementDetails
+              });
+              
+              // Wyślij powiadomienie (możesz użyć swojego systemu powiadomień)
+              sendAchievementNotification(userId, achievementDetails);
+            });
+          }
+        );
+      } else {
+        // Utwórz nowy rekord
+        db.run(
+          'INSERT INTO user_achievements (user_id, achievement_id, progress, unlocked, unlocked_at) VALUES (?, ?, ?, 1, ?)',
+          [userId, achievement_id, achievement.requirement, now],
+          function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            // Pobierz szczegóły odblokowanego osiągnięcia
+            getAchievementDetails(achievement_id, userId, (achievementDetails) => {
+              res.json({
+                message: 'Osiągnięcie odblokowane',
+                achievement: achievementDetails
+              });
+              
+              // Wyślij powiadomienie
+              sendAchievementNotification(userId, achievementDetails);
+            });
+          }
+        );
+      }
+    });
+  });
+});
+
+// System osiągnięć - aktualizuj postęp
+app.post('/api/achievements/progress', authenticateToken, (req, res) => {
+  const { achievement_id, progress } = req.body;
+  const userId = req.user.id;
+
+  // Sprawdź czy osiągnięcie istnieje
+  db.get('SELECT * FROM achievements WHERE id = ?', [achievement_id], (err, achievement) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!achievement) {
+      return res.status(404).json({ error: 'Osiągnięcie nie istnieje' });
+    }
+
+    // Sprawdź czy użytkownik już ma to osiągnięcie
+    db.get('SELECT * FROM user_achievements WHERE user_id = ? AND achievement_id = ?', [userId, achievement_id], (err, userAchievement) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const newProgress = Math.min(progress, achievement.requirement);
+      const isUnlocked = newProgress >= achievement.requirement;
+
+      if (userAchievement) {
+        if (userAchievement.unlocked) {
+          return res.json({ message: 'Osiągnięcie jest już odblokowane', unlocked: true });
+        }
+
+        // Aktualizuj postęp
+        db.run(
+          'UPDATE user_achievements SET progress = ?, unlocked = ?, unlocked_at = ? WHERE user_id = ? AND achievement_id = ?',
+          [newProgress, isUnlocked ? 1 : 0, isUnlocked ? new Date().toISOString() : null, userId, achievement_id],
+          function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            if (isUnlocked) {
+              // Pobierz szczegóły odblokowanego osiągnięcia
+              getAchievementDetails(achievement_id, userId, (achievementDetails) => {
+                res.json({
+                  message: 'Osiągnięcie odblokowane!',
+                  unlocked: true,
+                  achievement: achievementDetails
+                });
+                
+                // Wyślij powiadomienie
+                sendAchievementNotification(userId, achievementDetails);
+              });
+            } else {
+              res.json({
+                message: 'Postęp zaktualizowany',
+                unlocked: false,
+                progress: newProgress,
+                progressPercentage: Math.round((newProgress * 100) / achievement.requirement)
+              });
+            }
+          }
+        );
+      } else {
+        // Utwórz nowy rekord
+        db.run(
+          'INSERT INTO user_achievements (user_id, achievement_id, progress, unlocked, unlocked_at) VALUES (?, ?, ?, ?, ?)',
+          [userId, achievement_id, newProgress, isUnlocked ? 1 : 0, isUnlocked ? new Date().toISOString() : null],
+          function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            if (isUnlocked) {
+              // Pobierz szczegóły odblokowanego osiągnięcia
+              getAchievementDetails(achievement_id, userId, (achievementDetails) => {
+                res.json({
+                  message: 'Osiągnięcie odblokowane!',
+                  unlocked: true,
+                  achievement: achievementDetails
+                });
+                
+                // Wyślij powiadomienie
+                sendAchievementNotification(userId, achievementDetails);
+              });
+            } else {
+              res.json({
+                message: 'Postęp zaktualizowany',
+                unlocked: false,
+                progress: newProgress,
+                progressPercentage: Math.round((newProgress * 100) / achievement.requirement)
+              });
+            }
+          }
+        );
+      }
+    });
+  });
+});
+
+// Funkcja pomocnicza do pobierania szczegółów osiągnięcia
+// Funkcja pomocnicza do pobierania szczegółów osiągnięcia
+function getAchievementDetails(achievementId, userId) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        a.*,
+        ac.name as category_name,
+        ua.progress,
+        ua.unlocked,
+        ua.unlocked_at,
+        CASE 
+          WHEN ua.unlocked THEN 100 
+          ELSE ROUND((ua.progress * 100.0 / a.requirement), 0) 
+        END as progress_percentage
+      FROM achievements a
+      LEFT JOIN achievement_categories ac ON a.category_id = ac.id
+      LEFT JOIN user_achievements ua ON a.id = ua.achievement_id AND ua.user_id = ?
+      WHERE a.id = ?
+    `;
+
+    db.get(query, [userId, achievementId], (err, achievement) => {
+      if (err) {
+        console.error('Error getting achievement details:', err);
+        reject(err);
+      } else {
+        resolve(achievement);
+      }
+    });
+  });
+}
+
+// Funkcja pomocnicza do wysyłania powiadomień o osiągnięciach
+function sendAchievementNotification(userId, achievement) {
+  const title = 'Nowe osiągnięcie!';
+  const message = `Odblokowałeś osiągnięcie: <strong>${achievement.name}</strong> - ${achievement.description}`;
+  
+  createNotification(
+    userId,
+    'achievement',
+    title,
+    message,
+    null,
+    null,
+    null
+  ).catch(err => {
+    console.error('Error sending achievement notification:', err);
+  });
+}
+
+// Admin - zarządzanie osiągnięciami
+app.get('/api/admin/achievements', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const query = `
+    SELECT 
+      a.*,
+      ac.name as category_name,
+      (SELECT COUNT(*) FROM user_achievements WHERE achievement_id = a.id AND unlocked = 1) as unlocked_count,
+      (SELECT ROUND((COUNT(*) * 100.0 / (SELECT COUNT(*) FROM users)), 1) 
+       FROM user_achievements 
+       WHERE achievement_id = a.id AND unlocked = 1) as unlock_percentage
+    FROM achievements a
+    LEFT JOIN achievement_categories ac ON a.category_id = ac.id
+    ORDER BY ac.position, a.id
+  `;
+
+  db.all(query, (err, achievements) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    res.json(achievements);
+  });
+});
+
+// Admin - dodaj osiągnięcie
+app.post('/api/admin/achievements', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const { name, description, icon, category_id, rarity, points, requirement, requirements_text, is_hidden } = req.body;
+
+  db.run(
+    'INSERT INTO achievements (name, description, icon, category_id, rarity, points, requirement, requirements_text, is_hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [name, description, icon, category_id, rarity, points, requirement, requirements_text, is_hidden ? 1 : 0],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      res.status(201).json({ 
+        message: 'Osiągnięcie zostało utworzone',
+        id: this.lastID 
+      });
+    }
+  );
+});
+
+// Admin - edytuj osiągnięcie
+app.put('/api/admin/achievements/:id', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const achievementId = req.params.id;
+  const { name, description, icon, category_id, rarity, points, requirement, requirements_text, is_hidden } = req.body;
+
+  db.run(
+    'UPDATE achievements SET name = ?, description = ?, icon = ?, category_id = ?, rarity = ?, points = ?, requirement = ?, requirements_text = ?, is_hidden = ? WHERE id = ?',
+    [name, description, icon, category_id, rarity, points, requirement, requirements_text, is_hidden ? 1 : 0, achievementId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Osiągnięcie nie istnieje' });
+      }
+      
+      res.json({ message: 'Osiągnięcie zostało zaktualizowane' });
+    }
+  );
+});
+
+// Pobierz statystyki systemu osiągnięć
+app.get('/api/admin/achievements/stats', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const queries = [
+    'SELECT COUNT(*) as total_users FROM users',
+    'SELECT COUNT(*) as total_unlocks FROM user_achievements WHERE unlocked = 1',
+    `SELECT SUM(a.points) as total_points 
+     FROM user_achievements ua 
+     JOIN achievements a ON ua.achievement_id = a.id 
+     WHERE ua.unlocked = 1`
+  ];
+
+  Promise.all(queries.map(query => 
+    new Promise((resolve, reject) => {
+      db.get(query, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    })
+  ))
+  .then(([users, unlocks, points]) => {
+    res.json({
+      total_users: users.total_users,
+      total_unlocks: unlocks.total_unlocks,
+      total_points: points.total_points || 0
+    });
+  })
+  .catch(err => {
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// Admin - usuwanie osiągnięcia
+app.delete('/api/admin/achievements/:id', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const achievementId = req.params.id;
+
+  // Najpierw sprawdź czy osiągnięcie nie jest przypisane do użytkowników
+  db.get('SELECT COUNT(*) as count FROM user_achievements WHERE achievement_id = ?', [achievementId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (row.count > 0) {
+      return res.status(400).json({ error: 'Nie można usunąć osiągnięcia przypisanego do użytkowników' });
+    }
+    
+    // Usuń osiągnięcie
+    db.run('DELETE FROM achievements WHERE id = ?', [achievementId], function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Osiągnięcie nie istnieje' });
+      }
+      
+      res.json({ message: 'Osiągnięcie zostało usunięte' });
+    });
+  });
+});
+
+// Kategorie osiągnięć - pobierz wszystkie
+app.get('/api/achievements/categories', authenticateToken, (req, res) => {
+  db.all('SELECT * FROM achievement_categories ORDER BY position', (err, categories) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json(categories);
+  });
+});
+
+// Kategorie osiągnięć - tworzenie (tylko admin)
+app.post('/api/admin/achievements/categories', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const { name, icon, description, position } = req.body;
+
+  // Znajdź najwyższą pozycję jeśli nie podano
+  if (position === undefined) {
+    db.get('SELECT MAX(position) as max_position FROM achievement_categories', (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      const newPosition = (row.max_position || 0) + 1;
+      
+      db.run(
+        'INSERT INTO achievement_categories (name, icon, description, position) VALUES (?, ?, ?, ?)',
+        [name, icon, description, newPosition],
+        function(err) {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          res.status(201).json({ 
+            message: 'Kategoria została utworzona',
+            id: this.lastID 
+          });
+        }
+      );
+    });
+  } else {
+    db.run(
+      'INSERT INTO achievement_categories (name, icon, description, position) VALUES (?, ?, ?, ?)',
+      [name, icon, description, position],
+      function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        res.status(201).json({ 
+          message: 'Kategoria została utworzona',
+          id: this.lastID 
+        });
+      }
+    );
+  }
+});
+
+// Kategorie osiągnięć - edycja (tylko admin)
+app.put('/api/admin/achievements/categories/:id', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const categoryId = req.params.id;
+  const { name, icon, description, position } = req.body;
+
+  db.run(
+    'UPDATE achievement_categories SET name = ?, icon = ?, description = ?, position = ? WHERE id = ?',
+    [name, icon, description, position, categoryId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Kategoria nie istnieje' });
+      }
+      
+      res.json({ message: 'Kategoria została zaktualizowana' });
+    }
+  );
+});
+
+// Kategorie osiągnięć - usuwanie (tylko admin)
+app.delete('/api/admin/achievements/categories/:id', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const categoryId = req.params.id;
+
+  // Sprawdź czy kategoria nie zawiera osiągnięć
+  db.get('SELECT COUNT(*) as count FROM achievements WHERE category_id = ?', [categoryId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (row.count > 0) {
+      return res.status(400).json({ error: 'Nie można usunąć kategorii zawierającej osiągnięcia' });
+    }
+    
+    db.run('DELETE FROM achievement_categories WHERE id = ?', [categoryId], function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Kategoria nie istnieje' });
+      }
+      
+      res.json({ message: 'Kategoria została usunięta' });
+    });
+  });
+});
+
+// Zmiana kolejności kategorii
+app.post('/api/admin/achievements/categories/:id/move', authenticateToken, requirePermission('manage_users'), (req, res) => {
+  const categoryId = req.params.id;
+  const { direction } = req.body; // 'up' or 'down'
+
+  db.get('SELECT position FROM achievement_categories WHERE id = ?', [categoryId], (err, category) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!category) {
+      return res.status(404).json({ error: 'Kategoria nie istnieje' });
+    }
+
+    const currentPos = category.position;
+    let newPos;
+    
+    if (direction === 'up') {
+      newPos = currentPos - 1;
+    } else if (direction === 'down') {
+      newPos = currentPos + 1;
+    } else {
+      return res.status(400).json({ error: 'Nieprawidłowy kierunek' });
+    }
+
+    // Sprawdź czy nowa pozycja jest dostępna
+    db.get('SELECT id FROM achievement_categories WHERE position = ?', [newPos], (err, targetCategory) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (!targetCategory) {
+        return res.status(400).json({ error: 'Nie można przesunąć kategorii' });
+      }
+
+      // Zamień pozycje
+      db.run('UPDATE achievement_categories SET position = ? WHERE id = ?', [newPos, categoryId], (err) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        db.run('UPDATE achievement_categories SET position = ? WHERE id = ?', [currentPos, targetCategory.id], (err) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          res.json({ message: 'Kolejność kategorii została zmieniona' });
+        });
+      });
+    });
+  });
+});
+
+// Endpoint do rejestrowania aktywności użytkownika
+app.post('/api/user-activity', authenticateToken, async (req, res) => {
+  const { activity_type, target_id, target_type } = req.body;
+  const userId = req.user.id;
+
+  try {
+    // Zapisz aktywność w bazie danych
+    db.run(
+      'INSERT INTO user_activities (user_id, activity_type, target_id, target_type) VALUES (?, ?, ?, ?)',
+      [userId, activity_type, target_id, target_type],
+      function(err) {
+        if (err) {
+          console.error('Error saving activity:', err);
+          return res.status(500).json({ error: 'Błąd zapisu aktywności' });
+        }
+        
+        // Sprawdź czy aktywność odblokowuje jakieś osiągnięcie
+        checkAchievements(userId, activity_type, target_id, target_type)
+          .then(unlockedAchievements => {
+            if (unlockedAchievements.length > 0) {
+              // Wyślij powiadomienia o odblokowanych osiągnięciach
+              unlockedAchievements.forEach(achievement => {
+                sendAchievementNotification(userId, achievement);
+              });
+            }
+          })
+          .catch(err => {
+            console.error('Error checking achievements:', err);
+          });
+        
+        res.json({ success: true });
+      }
+    );
+  } catch (error) {
+    console.error('Error processing activity:', error);
+    res.status(500).json({ error: 'Błąd przetwarzania aktywności' });
+  }
+});
+
+// Funkcja pomocnicza do sprawdzania osiągnięć
+async function checkAchievements(userId, activityType, targetId, targetType) {
+  const unlockedAchievements = [];
+  
+  try {
+    console.log(`Checking achievements for user ${userId}, activity: ${activityType}`);
+    
+    // Pobierz wszystkie osiągnięcia
+    const achievements = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM achievements', (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+    
+    // Sprawdź każde osiągnięcie
+    for (const achievement of achievements) {
+      try {
+        const requirements = achievement.requirements ? JSON.parse(achievement.requirements) : {};
+        
+        // Sprawdź czy osiągnięcie jest związane z tą aktywnością
+        if (achievement.activity_type && achievement.activity_type !== activityType) {
+          continue;
+        }
+        
+        const meetsRequirements = await checkAchievementRequirements(
+          userId, 
+          achievement, 
+          requirements, 
+          activityType
+        );
+        
+        if (meetsRequirements) {
+          console.log(`Unlocking achievement ${achievement.id} for user ${userId}`);
+          const unlocked = await unlockAchievement(userId, achievement.id);
+          if (unlocked) {
+            const achievementDetails = await getAchievementDetails(achievement.id, userId);
+            unlockedAchievements.push(achievementDetails);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking individual achievement:', error);
+      }
+    }
+  } catch (error) {
+    console.error('Error in checkAchievements:', error);
+  }
+  
+  console.log(`Unlocked ${unlockedAchievements.length} achievements for user ${userId}`);
+  return unlockedAchievements;
+}
+
+// Funkcja pomocnicza do odblokowywania osiągnięć
+async function unlockAchievement(userId, achievementId) {
+  return new Promise((resolve, reject) => {
+    const now = new Date().toISOString();
+    
+    // Najpierw pobierz wymagania osiągnięcia aby ustawić poprawny progress
+    db.get('SELECT requirement FROM achievements WHERE id = ?', [achievementId], (err, achievement) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      
+      const progress = achievement ? achievement.requirement : 1;
+      
+      db.run(
+        `INSERT OR REPLACE INTO user_achievements 
+         (user_id, achievement_id, progress, unlocked, unlocked_at) 
+         VALUES (?, ?, ?, 1, ?)`,
+        [userId, achievementId, progress, now],
+        function(err) {
+          if (err) {
+            reject(err);
+          } else {
+            // Aktualizuj punkty reputacji użytkownika
+            db.get('SELECT points FROM achievements WHERE id = ?', [achievementId], (err, achievement) => {
+              if (!err && achievement) {
+                db.run(
+                  'UPDATE users SET reputation = COALESCE(reputation, 0) + ? WHERE id = ?',
+                  [achievement.points, userId],
+                  (err) => {
+                    if (err) {
+                      console.error('Error updating reputation:', err);
+                    }
+                    resolve(true);
+                  }
+                );
+              } else {
+                resolve(true);
+              }
+            });
+          }
+        }
+      );
+    });
+  });
+}
+
+// Funkcja sprawdzająca wymagania osiągnięcia
+async function checkAchievementRequirements(userId, achievement, requirements, currentActivityType) {
+  try {
+    console.log(`Checking requirements for achievement ${achievement.id}, user ${userId}`);
+    
+    // Sprawdź czy aktywność pasuje
+    if (achievement.activity_type && achievement.activity_type !== currentActivityType) {
+      console.log(`Activity type mismatch: ${achievement.activity_type} != ${currentActivityType}`);
+      return false;
+    }
+    
+    // Sprawdź czy użytkownik już nie ma tego osiągnięcia
+    const hasAchievement = await new Promise((resolve, reject) => {
+      db.get('SELECT unlocked FROM user_achievements WHERE user_id = ? AND achievement_id = ?', 
+             [userId, achievement.id], (err, row) => {
+        if (err) {
+          console.error('Error checking existing achievement:', err);
+          reject(err);
+        } else {
+          resolve(row && row.unlocked === 1);
+        }
+      });
+    });
+    
+    if (hasAchievement) {
+      console.log(`User already has achievement ${achievement.id}`);
+      return false;
+    }
+    
+    // Sprawdź różne typy wymagań
+    if (requirements.min_posts) {
+      const postCount = await new Promise((resolve, reject) => {
+        db.get('SELECT COUNT(*) as count FROM posts WHERE user_id = ?', [userId], (err, row) => {
+          if (err) {
+            console.error('Error counting posts:', err);
+            reject(err);
+          } else {
+            resolve(row ? row.count : 0);
+          }
+        });
+      });
+      
+      console.log(`User ${userId} has ${postCount} posts, required: ${requirements.min_posts}`);
+      if (postCount < requirements.min_posts) {
+        console.log(`Not enough posts for achievement ${achievement.id}`);
+        return false;
+      }
+    }
+    
+    if (requirements.min_threads) {
+      const threadCount = await new Promise((resolve, reject) => {
+        db.get('SELECT COUNT(*) as count FROM threads WHERE user_id = ?', [userId], (err, row) => {
+          if (err) {
+            console.error('Error counting threads:', err);
+            reject(err);
+          } else {
+            resolve(row ? row.count : 0);
+          }
+        });
+      });
+      
+      console.log(`User ${userId} has ${threadCount} threads, required: ${requirements.min_threads}`);
+      if (threadCount < requirements.min_threads) {
+        console.log(`Not enough threads for achievement ${achievement.id}`);
+        return false;
+      }
+    }
+    
+    if (requirements.min_edits) {
+      const editCount = await new Promise((resolve, reject) => {
+        db.get(`SELECT COUNT(*) as count FROM user_activities 
+                WHERE user_id = ? AND activity_type = 'post_edited'`, [userId], (err, row) => {
+          if (err) {
+            console.error('Error counting edits:', err);
+            reject(err);
+          } else {
+            resolve(row ? row.count : 0);
+          }
+        });
+      });
+      
+      console.log(`User ${userId} has ${editCount} edits, required: ${requirements.min_edits}`);
+      if (editCount < requirements.min_edits) {
+        console.log(`Not enough edits for achievement ${achievement.id}`);
+        return false;
+      }
+    }
+    
+    console.log(`All requirements met for achievement ${achievement.id}`);
+    return true;
+    
+  } catch (error) {
+    console.error('Error in checkAchievementRequirements:', error);
+    return false;
+  }
+}
 
 function formatRegistrationDate(registerDate) {
   const register = new Date(registerDate);

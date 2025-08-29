@@ -13,9 +13,11 @@ import VMdPreviewHtml from '@kangc/v-md-editor/lib/preview-html';
 import Prism from 'prismjs'
 
 import plPL from '@kangc/v-md-editor/lib/lang/pl-PL';
+import mitt from 'mitt'
 
 VueMarkdownEditor.lang.use('pl-PL', plPL);
 
+const emitter = mitt()
 
 // highlightjs
 import hljs from 'highlight.js';
@@ -47,6 +49,8 @@ VueMarkdownEditor.use(vuepressTheme, {
 })
 
 const app = createApp(App)
+// Dodaj emitter do globalnych właściwości
+app.config.globalProperties.$emitter = emitter
 app.use(ElementPlus)
 app.use(VueMarkdownEditor)
 app.directive('tooltip', {
@@ -57,6 +61,8 @@ app.directive('tooltip', {
     el.setAttribute('title', binding.value);
   }
 });
+
+app.provide('emitter', emitter)
 app.mount('#app')
 
 // Dodaj globalny komponent Iconify

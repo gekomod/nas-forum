@@ -233,6 +233,14 @@ export default {
       // Emituj zdarzenie - NIE używaj await!
       this.$emit('create-thread', threadData);
       
+        try {
+	  axios.post('/user-activity', {
+	    activity_type: 'thread_created'
+	  });
+	} catch (error) {
+	  console.error('Error logging activity:', error);
+	}
+      
       // Zamknij modal po emisji
       this.handleClose();
       this.submitting = false;
