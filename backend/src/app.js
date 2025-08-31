@@ -7,13 +7,16 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { db, isFirstUser } = require('../database');
-const { authenticateToken, requirePermission, checkOwnership, JWT_SECRET } = require('./middleware/auth');
+const { authenticateToken, requirePermission, checkOwnership, addUserPermissions, JWT_SECRET } = require('./middleware/auth');
+const BackupRoutes = require('./backup.js');
+const PermissionRoutes = require('./permission.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(bodyParser.json());
+app.use(addUserPermissions);
 
 // Rejestracja użytkownika
 app.post('/api/register', async (req, res) => {
@@ -41,21 +44,37 @@ app.post('/api/register', async (req, res) => {
           }
           
           // Utwórz użytkownika
-          db.run(
-            'INSERT INTO users (username, email, password, role_id) VALUES (?, ?, ?, ?)',
-            [username, email, hashedPassword, roleId],
-            function(err) {
-              if (err) {
-                return res.status(500).json({ error: err.message });
-              }
-              
-              const message = firstUser 
-                ? 'Pierwszy użytkownik został utworzony jako Administrator' 
-                : 'Użytkownik został utworzony';
-              
-              res.status(201).json({ message, isFirstUser: firstUser });
-            }
-          );
+db.run(
+  'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
+  [username, email, hashedPassword],
+  function(err) {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    const userId = this.lastID;
+    
+    // Przypisz rolę przez user_roles
+    const roleId = firstUser ? 1 : 3; // 1 = Administrator, 3 = Użytkownik
+    db.run(
+      'INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)',
+      [userId, roleId],
+      function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        const message = firstUser 
+          ? 'Pierwszy użytkownik został utworzony jako Administrator' 
+          : 'Użytkownik został utworzony';
+        
+        res.status(201).json({ message, isFirstUser: firstUser });
+      }
+    );
+  }
+);
+
+
         });
       });
     });
@@ -68,10 +87,12 @@ app.post('/api/register', async (req, res) => {
 app.get('/api/users', authenticateToken, requirePermission('manage_users'), (req, res) => {
   db.all(
     `SELECT u.id, u.username, u.email, u.avatar, u.created_at, u.last_login, 
-            r.id as role_id, r.name as role_name 
+        GROUP_CONCAT(r.id) as role_ids,
+        GROUP_CONCAT(r.name) as role_names
      FROM users u 
-     JOIN roles r ON u.role_id = r.id 
-     ORDER BY u.created_at DESC`,
+	 LEFT JOIN user_roles ur ON u.id = ur.user_id
+     LEFT JOIN roles r ON ur.role_id = r.id
+     ORDER BY u.created_at DESC;`,
     (err, users) => {
       if (err) {
         return res.status(500).json({ error: err.message });
@@ -179,7 +200,20 @@ app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
+    // Pobierz użytkownika wraz z jego rolami
+    const query = `
+      SELECT 
+        u.*,
+        GROUP_CONCAT(r.id) as role_ids,
+        GROUP_CONCAT(r.name) as role_names
+      FROM users u
+      LEFT JOIN user_roles ur ON u.id = ur.user_id
+      LEFT JOIN roles r ON ur.role_id = r.id
+      WHERE u.username = ?
+      GROUP BY u.id
+    `;
+
+    db.get(query, [username], async (err, user) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
@@ -197,9 +231,22 @@ app.post('/api/login', async (req, res) => {
       // Aktualizuj ostatnie logowanie
       db.run('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
 
+      // Przetwórz role na tablicę obiektów
+      const roles = user.role_ids 
+        ? user.role_ids.split(',').map((id, index) => ({
+            id: parseInt(id),
+            name: user.role_names.split(',')[index]
+          }))
+        : [];
+
       // Generuj token JWT
       const token = jwt.sign(
-        { id: user.id, username: user.username, role: user.role_id },
+        { 
+          id: user.id, 
+          username: user.username,
+          email: user.email,
+          roles: roles // Dodaj role do tokenu
+        },
         JWT_SECRET,
         { expiresIn: '24h' }
       );
@@ -210,7 +257,7 @@ app.post('/api/login', async (req, res) => {
           id: user.id,
           username: user.username,
           email: user.email,
-          role: user.role_id,
+          roles: roles, // Zwróć role w odpowiedzi
           avatar: user.avatar
         }
       });
@@ -222,27 +269,43 @@ app.post('/api/login', async (req, res) => {
 
 // Pobierz profil użytkownika
 app.get('/api/profile', authenticateToken, (req, res) => {
-  db.get(
-    `SELECT u.*, r.name as role_name 
-     FROM users u 
-     JOIN roles r ON u.role_id = r.id 
-     WHERE u.id = ?`,
-    [req.user.id],
-    (err, user) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      
-      if (!user) {
-        return res.status(404).json({ error: 'Użytkownik nie istnieje' });
-      }
+  const query = `
+    SELECT 
+      u.*,
+      GROUP_CONCAT(r.name) as role_names,
+      GROUP_CONCAT(r.id) as role_ids
+    FROM users u
+    LEFT JOIN user_roles ur ON u.id = ur.user_id
+    LEFT JOIN roles r ON ur.role_id = r.id
+    WHERE u.id = ?
+    GROUP BY u.id
+  `;
 
-      // Usuń hasło z odpowiedzi
-      delete user.password;
-      
-      res.json(user);
+  db.get(query, [req.user.id], (err, user) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
     }
-  );
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje' });
+    }
+
+    // Przetwórz role na tablicę
+    const roles = user.role_names 
+      ? user.role_names.split(',').map((name, index) => ({
+          id: user.role_ids.split(',')[index],
+          name: name
+        }))
+      : [];
+
+    // Usuń hasło z odpowiedzi
+    delete user.password;
+    
+    // Dodaj role do odpowiedzi
+    user.roles = roles;
+    
+    res.json(user);
+  });
 });
 
 // Aktualizuj profil użytkownika
@@ -260,6 +323,35 @@ app.put('/api/profile', authenticateToken, (req, res) => {
       res.json({ message: 'Profil zaktualizowany pomyślnie' });
     }
   );
+});
+
+app.get('/api/user-permissions', authenticateToken, async (req, res) => {
+  try {
+    const roleIds = req.query.role_ids ? req.query.role_ids.split(',').map(id => parseInt(id)) : [];
+    
+    if (roleIds.length === 0) {
+      return res.json({ permissions: [] });
+    }
+
+    const placeholders = roleIds.map(() => '?').join(',');
+    
+    const permissions = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT DISTINCT p.name 
+        FROM permissions p
+        JOIN permission_roles pr ON p.id = pr.permission_id
+        WHERE pr.role_id IN (${placeholders})
+      `, roleIds, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows.map(row => row.name));
+      });
+    });
+
+    res.json({ permissions: permissions });
+  } catch (error) {
+    console.error('Error fetching user permissions:', error);
+    res.status(500).json({ error: 'Błąd pobierania uprawnień' });
+  }
 });
 
 // Zmiana hasła
@@ -3768,6 +3860,9 @@ async function unlockAchievement(userId, achievementId) {
     });
   });
 }
+
+BackupRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
+PermissionRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
 
 // Funkcja sprawdzająca wymagania osiągnięcia
 async function checkAchievementRequirements(userId, achievement, requirements, currentActivityType) {

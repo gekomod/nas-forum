@@ -37,25 +37,26 @@
           <img :src="user.avatar || '/default-avatar.png'" class="user-avatar" />
         </button>
         <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item @click="$emit('show-profile')">
-              <Icon icon="mdi:account" /> Mój profil
-            </el-dropdown-item>
-            
-            <el-dropdown-item v-if="user.role_id === 1 || user.role_id === 2" @click="$emit('show-admin-panel')">
-              <Icon icon="mdi:cog" /> Panel Administracyjny
-            </el-dropdown-item>
-            
-            <el-dropdown-item v-if="user.role_id === 1" @click="$emit('show-categories')">
-              <Icon icon="mdi:plus-box" /> Nowa kategoria
-            </el-dropdown-item>
-            
-            <el-dropdown-item divided @click="$emit('logout')">
-              <Icon icon="mdi:logout" /> Wyloguj
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item @click="$emit('show-profile')">
+            <Icon icon="mdi:account" /> Mój profil
+          </el-dropdown-item>
+          
+          <!-- Sprawdź uprawnienia zamiast roli -->
+          <el-dropdown-item v-if="this.$hasPermission('manage_users')" @click="$emit('show-admin-panel')">
+            <Icon icon="mdi:cog" /> Panel Administracyjny
+          </el-dropdown-item>
+          
+          <el-dropdown-item v-if="this.$hasPermission('manage_categories')" @click="$emit('show-categories')">
+            <Icon icon="mdi:plus-box" /> Nowa kategoria
+          </el-dropdown-item>
+          
+          <el-dropdown-item divided @click="$emit('logout')">
+            <Icon icon="mdi:logout" /> Wyloguj
+          </el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
       
       <template v-else>
         <button class="control-btn" @click="$emit('show-login')">
@@ -66,7 +67,7 @@
         </button>
       </template>
 
-            <!-- Powiadomienia -->
+      <!-- Powiadomienia -->
       <el-dropdown v-if="user" trigger="click" class="notifications-dropdown">
         <button class="control-btn notification-btn">
           <Icon icon="mdi:bell-outline" />
@@ -301,6 +302,32 @@ export default {
       const diffMonths = Math.floor(diffDays / 30);
       if (diffMonths === 1) return '1 miesiąc temu';
       return `${diffMonths} miesięcy temu`;
+    },
+    
+    hasPermission(permissionName) {
+      if (!this.user) return false;
+      
+      // Sprawdź bezpośrednio uprawnienia jeśli są dostępne
+      if (this.user.permissions && Array.isArray(this.user.permissions)) {
+        return this.user.permissions.includes(permissionName);
+      }
+      
+      // Sprawdź przez role jeśli uprawnienia nie są bezpośrednio dostępne
+      if (this.user.roles && Array.isArray(this.user.roles)) {
+        // Tutaj możesz dodać logikę sprawdzania uprawnień przez role
+        // Na razie zwracamy true dla administratora i moderatora
+        const adminRole = this.user.roles.find(role => role.id === 1 || role.name === 'Administrator');
+        const moderatorRole = this.user.roles.find(role => role.id === 2 || role.name === 'Moderator');
+        
+        if (adminRole) return true;
+        if (moderatorRole) {
+          // Dla moderatora sprawdź konkretne uprawnienia
+          const moderatorPermissions = ['manage_threads', 'manage_posts', 'delete_any_content'];
+          return moderatorPermissions.includes(permissionName);
+        }
+      }
+      
+      return false;
     }
   },
   watch: {

@@ -17,7 +17,7 @@
         </div>
         <div class="user-info">
           <h3>{{ user.username }}<div class="status-indicator" :class="statusClass"></div></h3>
-          <p class="role">{{ user.role_name }}</p>
+          <p class="role">{{ user.role_names || 'Użytkownik' }}</p>
           <p>Dołączył: {{ formatDate(user.created_at) }}</p>
           <p v-if="user.last_login">
             Ostatnia aktywność: {{ formatDate(user.last_login) }}
@@ -237,7 +237,7 @@ export default {
           { validator: validatePassword, trigger: 'blur' }
         ]
       },
-      uploadAction: '/upload-avatar'
+      uploadAction: '/api/upload-avatar'
     };
   },
   computed: {

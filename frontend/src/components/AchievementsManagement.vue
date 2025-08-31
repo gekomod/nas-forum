@@ -366,7 +366,7 @@ export default {
       },
       rarities: [
         { value: 'common', label: 'Powszechne', type: 'info' },
-        { value: 'uncommon', label: 'Niezbyt powszechne', type: '' },
+        { value: 'uncommon', label: 'Niezbyt powszechne', type: 'primary' },
         { value: 'rare', label: 'Rzadkie', type: 'warning' },
         { value: 'epic', label: 'Epickie', type: 'danger' },
         { value: 'legendary', label: 'Legendarne', type: 'success' }
@@ -604,7 +604,10 @@ export default {
 
 <style scoped>
 .achievements-management {
-  padding: 20px;
+  background: var(--card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  padding: 24px;
 }
 
 .management-header {

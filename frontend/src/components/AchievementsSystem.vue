@@ -418,12 +418,12 @@ export default {
       
       // Rarytasy
       rarities: [
-        { value: 'common', label: 'Powszechne', type: 'info' },
-        { value: 'uncommon', label: 'Niezbyt powszechne', type: '' },
-        { value: 'rare', label: 'Rzadkie', type: 'warning' },
-        { value: 'epic', label: 'Epickie', type: 'danger' },
-        { value: 'legendary', label: 'Legendarne', type: 'success' }
-      ],
+	  { value: 'common', label: 'Powszechne', type: 'info' },
+	  { value: 'uncommon', label: 'Niezbyt powszechne', type: 'primary' }, // Changed from '' to 'primary'
+	  { value: 'rare', label: 'Rzadkie', type: 'warning' },
+	  { value: 'epic', label: 'Epickie', type: 'danger' },
+	  { value: 'legendary', label: 'Legendarne', type: 'success' }
+	],
       
       // Timer do odświeżania osiągnięć
       refreshTimer: null
@@ -541,15 +541,17 @@ export default {
     },
     
     // Pomocnicze
-    getRarityType(rarity) {
-      const rarityObj = this.rarities.find(r => r.value === rarity);
-      return rarityObj ? rarityObj.type : '';
-    },
-    
+   
+	getRarityType(rarity) {
+	  const rarityObj = this.rarities.find(r => r.value === rarity);
+	  return rarityObj ? rarityObj.type : 'info'; // Fallback to 'info' if not found
+	},
+	
     getRarityLabel(rarity) {
       const rarityObj = this.rarities.find(r => r.value === rarity);
       return rarityObj ? rarityObj.label : rarity;
     },
+
     
     formatDate(dateString) {
       if (!dateString) return 'Nie odblokowano';

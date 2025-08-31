@@ -1,6 +1,11 @@
 <template>
   <div class="reputation-management">
-    <h3>Zarządzanie systemem reputacji</h3>
+     <div class="page-header">
+      <h2>
+        <Icon icon="mdi:forum-outline" />
+        Zarządzanie systemem reputacji
+      </h2>
+    </div>
     
     <div class="stats-cards">
       <el-card class="stat-card">
@@ -169,7 +174,29 @@ export default {
 
 <style scoped>
 .reputation-management {
-  padding: 20px;
+  background: var(--card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  padding: 24px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--el-border-color-light);
+}
+
+.page-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 600;
 }
 
 .stats-cards {

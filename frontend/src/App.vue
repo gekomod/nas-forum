@@ -36,10 +36,10 @@
 	      <Icon icon="mdi:email" />
 	      Wiadomości
 	  </el-menu-item>
-          <el-menu-item index="admin-panel" v-if="isAdminOrModerator">
-            <Icon icon="mdi:cog" />
-            Panel Administracyjny
-          </el-menu-item>
+        <el-menu-item index="admin-panel" v-if="hasPermission('manage_users')">
+          <Icon icon="mdi:cog" />
+          Panel Administracyjny
+        </el-menu-item>
         </el-menu>
 
   <div class="auth-buttons" v-if="!currentUser">
@@ -241,17 +241,16 @@ export default {
   },
   computed: {
     isAdmin() {
-      // Bezpieczne sprawdzenie - uwzględnij że currentUser może być null
-      return this.currentUser && this.currentUser.role_id === 1;
+      return this.hasPermission('manage_users'); // Administrator ma wszystkie uprawnienia
     },
     isModerator() {
-      return this.currentUser && this.currentUser.role_id === 2;
-    },
-    isUser() {
-      return this.currentUser && this.currentUser.role_id === 3;
+      return this.hasPermission('manage_threads'); // Moderator ma uprawnienia do zarządzania wątkami
     },
     isAdminOrModerator() {
-      return this.isAdmin || this.isModerator;
+      return this.hasPermission('manage_users') || this.hasPermission('manage_threads');
+    },
+    isUser() {
+      return this.currentUser && this.currentUser.role === 3;
     }
   },
   methods: {
@@ -259,6 +258,9 @@ export default {
       this.darkMode = !this.darkMode
       localStorage.setItem('darkMode', this.darkMode)
       this.updateDarkMode()
+    },
+    hasPermission(permissionName) {
+      return this.$hasPermission(permissionName);
     },
     async restoreUserSession() {
       const token = localStorage.getItem('authToken')
@@ -419,14 +421,16 @@ async loadStats() {
       this.currentView = 'user-profile';
     },
     
-    async handleLoginSuccess(user) {
-      this.currentUser = user;
+    async handleLoginSuccess(userData) {
+      this.currentUser = userData;
       const token = localStorage.getItem('authToken')
       if (token) {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
       }
-      await this.loadUserProfile();
-      this.$message.success(`Witaj ${user.username}!`);
+      
+      // Załaduj uprawnienia po zalogowaniu
+      await this.$loadPermissions();
+      this.$message.success(`Witaj ${userData.username}!`);
     },
     
     async loadUserProfile() {
@@ -443,6 +447,9 @@ async loadStats() {
       localStorage.removeItem('authToken');
       delete axios.defaults.headers.common['Authorization'];
       this.currentUser = null;
+      
+      // Wyczyść uprawnienia
+      this.$permissions.clearPermissions();
       this.$message.success('Wylogowano pomyślnie');
     },
     
@@ -506,10 +513,12 @@ async loadStats() {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       try {
+        // Załaduj uprawnienia globalnie
+        await this.$loadPermissions();
         await this.loadUserProfile();
         this.updateUserActivity();
       } catch (error) {
-        console.error('Error loading user profile:', error);
+        console.error('Error loading permissions:', error);
         this.handleLogout();
       }
     }

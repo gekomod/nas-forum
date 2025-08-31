@@ -18,7 +18,7 @@
     </div>
 
     <el-alert
-      v-if="!hasPermission && !loading"
+      v-if="!this.$hasPermission && !loading"
       title="Brak uprawnień"
       type="warning"
       description="Tylko administratorzy mają dostęp do zarządzania kategoriami."
@@ -285,7 +285,6 @@ export default {
       roles: [],
       loading: false,
       submitting: false,
-      hasPermission: false,
       errorMessage: '',
       showModal: false,
       isEditing: false,
@@ -349,25 +348,20 @@ export default {
     this.checkPermissions();
   },
   methods: {
-    async checkPermissions() {
+     async checkPermissions() {
       const token = localStorage.getItem('authToken');
       if (!token) {
-        this.hasPermission = false;
-        return;
+        return false;
       }
 
-      try {
-        const response = await axios.get('/profile');
-        this.hasPermission = response.data.role_id === 1;
-        if (this.hasPermission) {
-          await this.loadCategories();
-          await this.loadRoles();
-        }
-      } catch (error) {
-        console.error('Permission check error:', error);
-        this.hasPermission = false;
-        this.errorMessage = 'Błąd podczas weryfikacji uprawnień';
+      // Używamy globalnie załadowanych uprawnień
+      if (this.$hasPermission('manage_categories')) {
+        this.loadCategories();
+        this.loadRoles();
+        return true;
       }
+      
+      return false;
     },
 
     async loadCategories() {

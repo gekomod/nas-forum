@@ -33,8 +33,8 @@
         <el-table-column prop="email" label="Email" />
         <el-table-column prop="role_name" label="Rola">
           <template #default="scope">
-            <el-tag :type="getRoleType(scope.row.role_id)">
-              {{ scope.row.role_name }}
+            <el-tag :type="getRoleType(scope.row.role_ids)">
+              {{ scope.row.role_names }}
             </el-tag>
           </template>
         </el-table-column>
@@ -214,7 +214,6 @@ export default {
       currentPage: 1,
       pageSize: 10,
       totalUsers: 0,
-      hasPermission: false,
       
       // Edycja użytkownika
       editDialogVisible: false,
@@ -249,6 +248,11 @@ export default {
       }
     };
   },
+  computed: {
+    hasPermission() {
+      return this.$hasPermission('manage_users');
+    }
+  },
   mounted() {
     this.checkPermissions();
   },
@@ -256,23 +260,17 @@ export default {
     async checkPermissions() {
       const token = localStorage.getItem('authToken');
       if (!token) {
-        this.hasPermission = false;
-        return;
+        return false;
       }
 
-      try {
-        const response = await axios.get('/profile');
-        this.hasPermission = response.data.role_id === 1; // Tylko administratorzy
-        if (this.hasPermission) {
-          this.loadUsers();
-          this.loadRoles();
-        }
-      } catch (error) {
-        this.hasPermission = false;
-        if (error.response?.status === 401) {
-          this.$message.warning('Wymagane ponowne logowanie');
-        }
+      // Używamy globalnie załadowanych uprawnień
+      if (this.$hasPermission('manage_users')) {
+        this.loadUsers();
+        this.loadRoles();
+        return true;
       }
+      
+      return false;
     },
     async loadUsers() {
       this.loading = true;
@@ -282,7 +280,6 @@ export default {
         this.totalUsers = this.users.length;
       } catch (error) {
         if (error.response?.status === 403) {
-          this.hasPermission = false;
           this.$message.warning('Brak uprawnień do przeglądania użytkowników');
         } else {
           this.$message.error(error.response?.data?.error || 'Wystąpił błąd podczas ładowania użytkowników');
@@ -407,7 +404,7 @@ export default {
       const types = {
         1: 'danger',    // Administrator
         2: 'warning',   // Moderator
-        3: '',          // Użytkownik
+        3: 'primary',          // Użytkownik
         4: 'info',      // Zbanowany
         5: 'success'    // VIP
       };

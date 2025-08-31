@@ -26,8 +26,8 @@
         <button 
           class="new-thread-btn" 
           @click="$emit('create-thread')" 
-          v-if="user && (!category.is_locked || user.role_id === 1 || user.role_id === 2)"
-          :disabled="category.is_locked && (user.role_id !== 1 && user.role_id !== 2)"
+          v-if="user && (!category.is_locked || this.$hasPermission('manage_threads'))"
+          :disabled="category.is_locked && (!this.$hasPermission('manage_threads'))"
         >
           <Icon icon="mdi:plus" />
           Nowy wątek

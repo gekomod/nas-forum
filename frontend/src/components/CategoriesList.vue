@@ -179,9 +179,6 @@ export default {
     checkUnreadByTime(category, lastVisit) {
       const currentTime = Date.now();
       const timeSinceLastVisit = currentTime - lastVisit;
-      
-      // Jeśli ostatnia wizyta była dawno temu (więcej niż 5 minut)
-      // traktuj jako nieprzeczytane
       return timeSinceLastVisit > 5 * 60 * 1000;
     },
     
@@ -210,7 +207,7 @@ export default {
       }
       
       if (category.is_locked) {
-        if (this.currentUser && (this.currentUser.role_id === 1 || this.currentUser.role_id === 2)) {
+        if (this.currentUser && this.$hasPermission('manage_threads')) {
           this.$emit('select-category', category);
           this.$emit('refresh-categories');
         } else {

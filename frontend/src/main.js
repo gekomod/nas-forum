@@ -9,6 +9,7 @@ import '@kangc/v-md-editor/lib/style/base-editor.css'
 import vuepressTheme from '@kangc/v-md-editor/lib/theme/vuepress.js'
 import '@kangc/v-md-editor/lib/theme/style/vuepress.css'
 import VMdPreviewHtml from '@kangc/v-md-editor/lib/preview-html';
+import { GlobalPermissionsPlugin } from './plugins/globalPermissions'
 
 import Prism from 'prismjs'
 
@@ -53,6 +54,7 @@ const app = createApp(App)
 app.config.globalProperties.$emitter = emitter
 app.use(ElementPlus)
 app.use(VueMarkdownEditor)
+app.use(GlobalPermissionsPlugin)
 app.directive('tooltip', {
   mounted(el, binding) {
     el.setAttribute('title', binding.value);

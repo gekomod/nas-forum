@@ -12,7 +12,7 @@
     </div>
 
     <el-alert
-      v-if="!hasPermission"
+      v-if="!this.$hasPermission"
       title="Brak uprawnień"
       type="warning"
       description="Tylko administratorzy i moderatorzy mają dostęp do zarządzania tematami."
@@ -212,7 +212,6 @@ export default {
       currentPage: 1,
       pageSize: 10,
       totalThreads: 0,
-      hasPermission: false,
       searchQuery: '',
       categoryFilter: null,
       statusFilter: null,
@@ -254,27 +253,19 @@ export default {
     this.checkPermissions();
   },
   methods: {
-    async checkPermissions() {
+      async checkPermissions() {
       const token = localStorage.getItem('authToken');
       if (!token) {
-        this.hasPermission = false;
-        return;
+        return false;
       }
 
-      try {
-        const response = await axios.get('/profile');
-        const userRole = response.data.role_id;
-        this.hasPermission = userRole === 1 || userRole === 2;
-        if (this.hasPermission) {
-          this.loadThreads();
-          this.loadCategories();
-        }
-      } catch (error) {
-        this.hasPermission = false;
-        if (error.response?.status === 401) {
-          this.$message.warning('Wymagane ponowne logowanie');
-        }
+      // Używamy globalnie załadowanych uprawnień
+      if (this.$hasPermission('manage_threads')) {
+        this.loadThreads();
+        return true;
       }
+      
+      return false;
     },
     async loadThreads() {
       this.loading = true;

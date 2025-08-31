@@ -12,7 +12,7 @@
     </div>
 
     <el-alert
-      v-if="!hasPermission"
+      v-if="!this.$hasPermission"
       title="Brak uprawnień"
       type="warning"
       description="Tylko administratorzy i moderatorzy mają dostęp do zarządzania postami."
@@ -44,13 +44,12 @@
         <el-table-column prop="author_name" label="Autor" width="120" />
         <el-table-column prop="thread_title" label="Temat" width="200">
           <template #default="scope">
-            <router-link 
-              :to="`/thread/${scope.row.thread_id}`" 
-              class="thread-link"
-              @click.prevent="viewThread(scope.row.thread_id)"
-            >
-              {{ scope.row.thread_title }}
-            </router-link>
+<span 
+  class="thread-link clickable"
+  @click="emitThreadClick(scope.row.thread_id, scope.row.thread_title)"
+>
+  {{ scope.row.thread_title }}
+</span>
           </template>
         </el-table-column>
         <el-table-column prop="category_name" label="Kategoria" width="150" />
@@ -127,27 +126,23 @@ export default {
     this.checkPermissions();
   },
   methods: {
-    async checkPermissions() {
+     async checkPermissions() {
       const token = localStorage.getItem('authToken');
       if (!token) {
-        this.hasPermission = false;
-        return;
+        return false;
       }
 
-      try {
-        const response = await axios.get('/profile');
-        const userRole = response.data.role_id;
-        this.hasPermission = userRole === 1 || userRole === 2; // Admin lub moderator
-        if (this.hasPermission) {
-          this.loadPosts();
-        }
-      } catch (error) {
-        this.hasPermission = false;
-        if (error.response?.status === 401) {
-          this.$message.warning('Wymagane ponowne logowanie');
-        }
+      // Używamy globalnie załadowanych uprawnień
+      if (this.$hasPermission('manage_posts')) {
+        this.loadPosts();
+        return true;
       }
+      
+      return false;
     },
+  emitThreadClick(threadId, threadTitle) {
+    this.$emit('thread-click', { threadId, threadTitle });
+  },
     async loadPosts() {
       this.loading = true;
       try {
@@ -214,6 +209,16 @@ export default {
   border: 1px solid var(--card-border);
   padding: 20px;
   margin-bottom: 20px;
+}
+
+.clickable {
+  cursor: pointer;
+  color: var(--el-color-primary);
+  text-decoration: underline;
+}
+
+.clickable:hover {
+  color: var(--el-color-primary-light-3);
 }
 
 .page-header {
