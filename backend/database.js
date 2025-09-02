@@ -260,7 +260,7 @@ function initDatabase() {
     // Seo
     
     db.run(`
-CREATE TABLE "seo_settings" (
+CREATE TABLE IF NOT EXISTS "seo_settings" (
 	"id"	INTEGER DEFAULT 1,
 	"home_title"	TEXT,
 	"home_description"	TEXT,
@@ -284,7 +284,7 @@ db.run(`CREATE TABLE IF NOT EXISTS category_seo (
   FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE
 );`);
 
-db.run(`CREATE TABLE "seo_audits" (
+db.run(`CREATE TABLE IF NOT EXISTS "seo_audits" (
 	"id"	INTEGER,
 	"audit_date"	DATETIME DEFAULT CURRENT_TIMESTAMP,
 	"results"	TEXT,
