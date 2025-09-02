@@ -103,53 +103,88 @@ export default {
       this.$emit('switch-mode');
       this.$refs.authForm.resetFields();
     },
-    async submitForm() {
-      this.$refs.authForm.validate(async (valid) => {
-        if (valid) {
+async submitForm() {
+  this.$refs.authForm.validate(async (valid) => {
+    if (valid) {
+      try {
+        const endpoint = this.isLogin ? '/login' : '/register';
+        const data = this.isLogin 
+          ? { username: this.form.login, password: this.form.password }
+          : { username: this.form.username, email: this.form.email, password: this.form.password };
+        
+        const response = await axios.post(endpoint, data);
+        
+        if (this.isLogin) {
+          const token = response.data.token;
+          const userData = response.data.user;
+          
+          // Zapisz token i dane użytkownika
+          localStorage.setItem('authToken', token);
+          localStorage.setItem('userData', JSON.stringify(userData));
+          
+          // UPEWNIJ SIĘ ŻE AXIOS MA TOKEN
+          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          
+          // Pobierz pełne dane użytkownika
           try {
-            const endpoint = this.isLogin ? '/login' : '/register';
-            const data = this.isLogin 
-              ? { username: this.form.login, password: this.form.password }
-              : { username: this.form.username, email: this.form.email, password: this.form.password };
+            const profileResponse = await axios.get('/profile');
+            this.$emit('login-success', profileResponse.data);
             
-            const response = await axios.post(endpoint, data);
-            
-            if (this.isLogin) {
-              const token = response.data.token;
-              const userData = response.data.user;
-              
-              // Zapisz token i dane użytkownika
-              localStorage.setItem('authToken', token);
-              localStorage.setItem('userData', JSON.stringify(userData));
-              
-              // UPEWNIJ SIĘ ŻE AXIOS MA TOKEN
-              axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-              
-              // Pobierz pełne dane użytkownika
-              try {
-                const profileResponse = await axios.get('/profile');
-                this.$emit('login-success', profileResponse.data);
-              } catch (profileError) {
-                console.error('Błąd pobierania profilu:', profileError);
-                this.$emit('login-success', userData);
-              }
-              
-              this.$message.success('Zalogowano pomyślnie');
-            } else {
-              this.$message.success('Konto zostało utworzone. Możesz się teraz zalogować.');
-              this.$emit('switch-mode');
+            // DODAJ: Wyzwól aktualizację osiągnięć po udanym logowaniu
+            try {
+              await axios.post('/user-activity', {
+                activity_type: 'user_login',
+                target_id: profileResponse.data.id,
+                target_type: 'user'
+              });
+            } catch (activityError) {
+              console.error('Error logging login activity:', activityError);
+              // Nie przerywamy procesu logowania nawet jeśli logowanie aktywności się nie uda
             }
             
-            this.visible = false;
-            this.$emit('update:show', false);
-          } catch (error) {
-            const errorMessage = error.response?.data?.error || 'Wystąpił błąd';
-            this.$message.error(errorMessage);
-            console.error('Błąd autoryzacji:', error);
+          } catch (profileError) {
+            console.error('Błąd pobierania profilu:', profileError);
+            this.$emit('login-success', userData);
+            
+            // DODAJ: Wyzwól aktualizację osiągnięć nawet jeśli pobieranie profilu się nie udało
+            try {
+              await axios.post('/user-activity', {
+                activity_type: 'user_login',
+                target_id: userData.id,
+                target_type: 'user'
+              });
+            } catch (activityError) {
+              console.error('Error logging login activity:', activityError);
+            }
           }
+          
+          this.$message.success('Zalogowano pomyślnie');
+        } else {
+          // DODAJ: Dla rejestracji też możemy zalogować aktywność
+          try {
+            await axios.post('/user-activity', {
+              activity_type: 'user_registered',
+              target_id: response.data.user_id || null,
+              target_type: 'user'
+            });
+          } catch (activityError) {
+            console.error('Error logging registration activity:', activityError);
+          }
+          
+          this.$message.success('Konto zostało utworzone. Możesz się teraz zalogować.');
+          this.$emit('switch-mode');
         }
-      });
+        
+        this.visible = false;
+        this.$emit('update:show', false);
+      } catch (error) {
+        const errorMessage = error.response?.data?.error || 'Wystąpił błąd';
+        this.$message.error(errorMessage);
+        console.error('Błąd autoryzacji:', error);
+      }
     }
+  });
+}
   }
 }
 </script>

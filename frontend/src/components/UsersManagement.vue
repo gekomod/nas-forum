@@ -400,15 +400,28 @@ export default {
     formatDate(date) {
       return new Date(date).toLocaleDateString('pl-PL');
     },
-    getRoleType(roleId) {
+    getRoleType(roleIds) {
+      // Obsłuż różne formaty danych - tablica, pojedyncza wartość, lub null/undefined
+      if (!roleIds) return '';
+      
+      let primaryRoleId;
+      if (Array.isArray(roleIds)) {
+        // Weź pierwszą rolę z tablicy (możesz dostosować logikę do swojej hierarchii)
+        primaryRoleId = roleIds[0];
+      } else if (typeof roleIds === 'number' || typeof roleIds === 'string') {
+        primaryRoleId = parseInt(roleIds);
+      } else {
+        return '';
+      }
+      
       const types = {
         1: 'danger',    // Administrator
         2: 'warning',   // Moderator
-        3: 'primary',          // Użytkownik
+        3: 'primary',   // Użytkownik
         4: 'info',      // Zbanowany
         5: 'success'    // VIP
       };
-      return types[roleId] || '';
+      return types[primaryRoleId] || '';
     },
     handlePageChange(page) {
       this.currentPage = page;

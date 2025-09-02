@@ -91,8 +91,8 @@
               
               <div class="detail-item">
                 <span class="detail-label">Rola:</span>
-                <span class="detail-value" :class="'role-' + (user.role_id || 3)">
-                  {{ getUserRole(user.role_id) }}
+                <span class="detail-value" :class="'role-' + (user.role_ids || 3)">
+                  {{ getUserRole(user.role_ids) }}
                 </span>
               </div>
               

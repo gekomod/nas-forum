@@ -195,7 +195,7 @@ app.put('/api/admin/permissions/:id/roles', authenticateToken, requirePermission
     const { id } = req.params;
     
     // Akceptuj zarówno roleIds jak i assigned_roles (dla kompatybilności)
-    let roleIds = req.body.roleIds || req.body.assigned_roles || [];
+    let roleIds = req.body.role_ids || req.body.assigned_roles || [];
     
     console.log('Aktualizacja uprawnienia:', id, 'Role IDs:', roleIds);
     
@@ -258,110 +258,162 @@ app.put('/api/admin/permissions/:id/roles', authenticateToken, requirePermission
 });
 
     // Kategorie - GET /api/admin/categories_role/permissions - Uprawnienia kategorii
-    app.get('/api/admin/categories_role/permissions', authenticateToken, requirePermission('view_category_permissions'), (req, res) => {
-        console.log('Pobieranie kategorii z uprawnieniami...');
+app.get('/api/admin/categories_role/permissions', authenticateToken, requirePermission('view_category_permissions'), (req, res) => {
+    console.log('Pobieranie kategorii z uprawnieniami...');
+    
+    db.all('SELECT * FROM categories ORDER BY name', (err, categories) => {
+        if (err) {
+            console.error('Błąd przy pobieraniu kategorii:', err);
+            return res.status(500).json({ error: err.message });
+        }
         
-        db.all('SELECT * FROM categories ORDER BY name', (err, categories) => {
-            if (err) {
-                console.error('Błąd przy pobieraniu kategorii:', err);
-                return res.status(500).json({ error: err.message });
-            }
-            
-            if (!categories || categories.length === 0) {
-                console.log('Brak kategorii w bazie danych');
-                return res.json([]);
-            }
-            
-            console.log('Liczba kategorii:', categories.length);
-            
-            const results = [];
-            let processed = 0;
-            
-            categories.forEach(category => {
+        if (!categories || categories.length === 0) {
+            console.log('Brak kategorii w bazie danych');
+            return res.json([]);
+        }
+        
+        console.log('Liczba kategorii:', categories.length);
+        
+        const results = [];
+        let processed = 0;
+        
+        categories.forEach(category => {
+            // Pobierz uprawnienia READ
+            db.all(`
+                SELECT r.id 
+                FROM roles r
+                JOIN category_permissions cp ON r.id = cp.permission_id
+                WHERE cp.category_id = ? AND cp.permission_type = 'read'
+            `, [category.id], (err, readRoles) => {
+                if (err) {
+                    console.error(`Błąd przy pobieraniu uprawnień READ dla kategorii ${category.id}:`, err);
+                    readRoles = [];
+                }
+                
+                // Pobierz uprawnienia WRITE
                 db.all(`
-                    SELECT p.* 
-                    FROM permissions p
-                    JOIN category_permissions cp ON p.id = cp.permission_id
-                    WHERE cp.category_id = ?
-                `, [category.id], (err, permissions) => {
+                    SELECT r.id 
+                    FROM roles r
+                    JOIN category_permissions cp ON r.id = cp.permission_id
+                    WHERE cp.category_id = ? AND cp.permission_type = 'write'
+                `, [category.id], (err, writeRoles) => {
                     if (err) {
-                        console.error(`Błąd przy pobieraniu uprawnień dla kategorii ${category.id}:`, err);
-                        permissions = [];
+                        console.error(`Błąd przy pobieraniu uprawnień WRITE dla kategorii ${category.id}:`, err);
+                        writeRoles = [];
                     }
                     
-                    results.push({
-                        id: category.id,
-                        name: category.name,
-                        description: category.description,
-                        icon: category.icon,
-                        permissions: permissions || []
+                    // Pobierz uprawnienia MODERATE
+                    db.all(`
+                        SELECT r.id 
+                        FROM roles r
+                        JOIN category_permissions cp ON r.id = cp.permission_id
+                        WHERE cp.category_id = ? AND cp.permission_type = 'moderate'
+                    `, [category.id], (err, moderateRoles) => {
+                        if (err) {
+                            console.error(`Błąd przy pobieraniu uprawnień MODERATE dla kategorii ${category.id}:`, err);
+                            moderateRoles = [];
+                        }
+                        
+                        results.push({
+                            id: category.id,
+                            name: category.name,
+                            description: category.description,
+                            icon: category.icon,
+                            is_private: category.is_private || false,
+                            read_roles: readRoles.map(r => r.id),
+                            write_roles: writeRoles.map(r => r.id),
+                            moderate_roles: moderateRoles.map(r => r.id)
+                        });
+                        
+                        processed++;
+                        
+                        if (processed === categories.length) {
+                            console.log('Przetworzono wszystkie kategorie:', results.length);
+                            res.json(results);
+                        }
                     });
-                    
-                    processed++;
-                    
-                    if (processed === categories.length) {
-                        console.log('Przetworzono wszystkie kategorie:', results.length);
-                        res.json(results);
-                    }
                 });
             });
         });
     });
+});
 
     // Kategorie - PUT /api/admin/categories/{id}/permissions - Aktualizacja uprawnień
-    app.put('/api/admin/categories/:id/permissions', authenticateToken, requirePermission('edit_category_permissions'), (req, res) => {
-        const { id } = req.params;
-        const { permissionIds } = req.body;
+app.put('/api/admin/categories/:id/permissions', authenticateToken, requirePermission('edit_category_permissions'), (req, res) => {
+    const { id } = req.params;
+    const { read, write, moderate, type } = req.body;
+    
+    console.log('Aktualizacja uprawnień kategorii:', id, 'type:', type, 'data:', req.body);
+    
+    // Sprawdź jaki typ uprawnień aktualizujemy
+    if (!type || !['read', 'write', 'moderate'].includes(type)) {
+        return res.status(400).json({ error: 'Nieprawidłowy typ uprawnienia' });
+    }
+    
+    const roleIds = req.body[type] || [];
+    
+    // Rozpocznij transakcję
+    db.run('BEGIN TRANSACTION', (err) => {
+        if (err) {
+            console.error('Błąd przy rozpoczynaniu transakcji:', err);
+            return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+        }
         
-        // Rozpocznij transakcję
-        db.run('BEGIN TRANSACTION', (err) => {
+        // 1. Usuń wszystkie istniejące powiązania dla tej kategorii i typu
+        db.run('DELETE FROM category_permissions WHERE category_id = ? AND permission_type = ?', [id, type], function(err) {
             if (err) {
-                console.error('Błąd przy rozpoczynaniu transakcji:', err);
-                return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+                return db.run('ROLLBACK', () => {
+                    console.error('Błąd przy usuwaniu powiązań:', err);
+                    res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+                });
             }
             
-            // Usuń wszystkie istniejące powiązania dla tej kategorii
-            db.run('DELETE FROM category_permissions WHERE category_id = ?', [id], function(err) {
-                if (err) {
-                    return db.run('ROLLBACK', () => {
-                        console.error('Błąd przy usuwaniu powiązań:', err);
-                        res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
-                    });
-                }
+            console.log(`Usunięto ${this.changes} starych powiązań typu ${type}`);
+            
+            // 2. Dodaj nowe powiązania jeśli są
+            if (roleIds && roleIds.length > 0) {
+                const placeholders = roleIds.map(() => '(?, ?, ?)').join(',');
+                const values = roleIds.flatMap(roleId => [id, roleId, type]);
                 
-                // Dodaj nowe powiązania jeśli są
-                if (permissionIds && permissionIds.length > 0) {
-                    const placeholders = permissionIds.map(() => '(?, ?)').join(',');
-                    const values = permissionIds.flatMap(permId => [id, permId]);
-                    
-                    db.run(`INSERT INTO category_permissions (category_id, permission_id) VALUES ${placeholders}`, values, function(err) {
-                        if (err) {
-                            return db.run('ROLLBACK', () => {
-                                console.error('Błąd przy dodawaniu powiązań:', err);
-                                res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
-                            });
-                        }
-                        
-                        db.run('COMMIT', (err) => {
-                            if (err) {
-                                console.error('Błąd przy commitowaniu transakcji:', err);
-                                return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
-                            }
-                            res.json({ message: 'Uprawnienia kategorii zaktualizowane' });
+                db.run(`INSERT INTO category_permissions (category_id, permission_id, permission_type) VALUES ${placeholders}`, values, function(err) {
+                    if (err) {
+                        return db.run('ROLLBACK', () => {
+                            console.error('Błąd przy dodawaniu powiązań:', err);
+                            res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
                         });
-                    });
-                } else {
+                    }
+                    
+                    console.log(`Dodano ${this.changes} nowych powiązań typu ${type}`);
+                    
                     db.run('COMMIT', (err) => {
                         if (err) {
                             console.error('Błąd przy commitowaniu transakcji:', err);
                             return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
                         }
-                        res.json({ message: 'Uprawnienia kategorii zaktualizowane' });
+                        res.json({ 
+                            message: `Uprawnienia ${type} kategorii zaktualizowane`, 
+                            success: true,
+                            updated: roleIds
+                        });
                     });
-                }
-            });
+                });
+            } else {
+                // Brak ról do przypisania - tylko czyszczenie
+                db.run('COMMIT', (err) => {
+                    if (err) {
+                        console.error('Błąd przy commitowaniu transakcji:', err);
+                        return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+                    }
+                    res.json({ 
+                        message: `Uprawnienia ${type} kategorii zaktualizowane`, 
+                        success: true,
+                        updated: []
+                    });
+                });
+            }
         });
     });
+});
 
     // Logi audytu - GET /api/admin/audit/logs - Logi zmian uprawnień
     app.get('/api/admin/audit/logs', authenticateToken, requirePermission('view_audit_logs'), (req, res) => {
@@ -550,5 +602,148 @@ app.put('/api/admin/permissions/:id/roles', authenticateToken, requirePermission
             });
         });
     });
+    
+    // Uprawnienia - POST /api/admin/permissions - Tworzenie uprawnienia
+app.post('/api/admin/permissions', authenticateToken, requirePermission('create_permission'), (req, res) => {
+    const { key, name, description, category } = req.body;
+    
+    if (!name) {
+        return res.status(400).json({ error: 'Klucz i nazwa uprawnienia są wymagane' });
+    }
+    
+    // Sprawdź, czy uprawnienie o takim kluczu już istnieje
+    db.get('SELECT * FROM permissions WHERE name = ?', [name], (err, existing) => {
+        if (err) {
+            console.error('Błąd przy sprawdzaniu uprawnienia:', err);
+            return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+        }
+        
+        if (existing) {
+            return res.status(400).json({ error: 'Uprawnienie o tym kluczu już istnieje' });
+        }
+        
+        db.run('INSERT INTO permissions (name, description, category, created_at) VALUES (?, ?, ?, ?)', 
+            [name, description || '', category || 'Inne'], 
+            function(err) {
+                if (err) {
+                    console.error('Błąd przy tworzeniu uprawnienia:', err);
+                    return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+                }
+                
+                db.get('SELECT * FROM permissions WHERE id = ?', [this.lastID], (err, newPermission) => {
+                    if (err) {
+                        console.error('Błąd przy pobieraniu nowego uprawnienia:', err);
+                        return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+                    }
+                    res.status(201).json(newPermission);
+                });
+            }
+        );
+    });
+});
+
+// Uprawnienia - PUT /api/admin/permissions/{id} - Edycja uprawnienia
+app.put('/api/admin/permissions/:id', authenticateToken, requirePermission('edit_permission'), (req, res) => {
+    const { id } = req.params;
+    const { key, name, description, category } = req.body;
+    
+    if (!key || !name) {
+        return res.status(400).json({ error: 'Klucz i nazwa uprawnienia są wymagane' });
+    }
+    
+    // Sprawdź, czy uprawnienie o takim kluczu już istnieje (inne niż aktualne)
+    db.get('SELECT * FROM permissions WHERE key = ? AND id != ?', [key, id], (err, existing) => {
+        if (err) {
+            console.error('Błąd przy sprawdzaniu uprawnienia:', err);
+            return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+        }
+        
+        if (existing) {
+            return res.status(400).json({ error: 'Uprawnienie o tym kluczu już istnieje' });
+        }
+        
+        db.run('UPDATE permissions SET key = ?, name = ?, description = ?, category = ? WHERE id = ?', 
+            [key, name, description || '', category || 'Inne', id], 
+            function(err) {
+                if (err) {
+                    console.error('Błąd przy aktualizacji uprawnienia:', err);
+                    return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+                }
+                
+                if (this.changes === 0) {
+                    return res.status(404).json({ error: 'Uprawnienie nie znalezione' });
+                }
+                
+                db.get('SELECT * FROM permissions WHERE id = ?', [id], (err, updatedPermission) => {
+                    if (err) {
+                        console.error('Błąd przy pobieraniu zaktualizowanego uprawnienia:', err);
+                        return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+                    }
+                    res.json(updatedPermission);
+                });
+            }
+        );
+    });
+});
+
+// Uprawnienia - DELETE /api/admin/permissions/{id} - Usuwanie uprawnienia
+app.delete('/api/admin/permissions/:id', authenticateToken, requirePermission('delete_permission'), (req, res) => {
+    const { id } = req.params;
+    
+    // Sprawdź, czy uprawnienie jest używane przez jakieś role
+    db.get('SELECT COUNT(*) as count FROM permission_roles WHERE permission_id = ?', [id], (err, rolesWithPermission) => {
+        if (err) {
+            console.error('Błąd przy sprawdzaniu ról z uprawnieniem:', err);
+            return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+        }
+        
+        if (rolesWithPermission.count > 0) {
+            return res.status(400).json({ 
+                error: 'Nie można usunąć uprawnienia, ponieważ jest przypisane do ról' 
+            });
+        }
+        
+        // Sprawdź, czy uprawnienie jest używane przez jakieś kategorie
+        db.get('SELECT COUNT(*) as count FROM category_permissions WHERE permission_id = ?', [id], (err, categoriesWithPermission) => {
+            if (err) {
+                console.error('Błąd przy sprawdzaniu kategorii z uprawnieniem:', err);
+                return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+            }
+            
+            if (categoriesWithPermission.count > 0) {
+                return res.status(400).json({ 
+                    error: 'Nie można usunąć uprawnienia, ponieważ jest przypisane do kategorii' 
+                });
+            }
+            
+            // Usuń uprawnienie
+            db.run('DELETE FROM permissions WHERE id = ?', [id], function(err) {
+                if (err) {
+                    console.error('Błąd przy usuwaniu uprawnienia:', err);
+                    return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+                }
+                
+                if (this.changes === 0) {
+                    return res.status(404).json({ error: 'Uprawnienie nie znalezione' });
+                }
+                
+                res.status(204).send();
+            });
+        });
+    });
+});
+
+// Uprawnienia - GET /api/admin/permissions/categories - Lista dostępnych kategorii
+app.get('/api/admin/permissions/categories', authenticateToken, requirePermission('view_permissions'), (req, res) => {
+    db.all('SELECT DISTINCT category FROM permissions WHERE category IS NOT NULL ORDER BY category', (err, categories) => {
+        if (err) {
+            console.error('Błąd przy pobieraniu kategorii uprawnień:', err);
+            return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+        }
+        
+        const categoryList = categories.map(c => c.category);
+        res.json(categoryList);
+    });
+});
 
 };

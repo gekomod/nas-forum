@@ -10,6 +10,7 @@ const { db, isFirstUser } = require('../database');
 const { authenticateToken, requirePermission, checkOwnership, addUserPermissions, JWT_SECRET } = require('./middleware/auth');
 const BackupRoutes = require('./backup.js');
 const PermissionRoutes = require('./permission.js');
+const SeoRoutes = require('./seo.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -2570,49 +2571,63 @@ app.get('/api/users/:id', (req, res) => {
     }
 
     // Pobierz dane użytkownika z bazy - SQLite version
-    db.get(
-      `SELECT 
-        id, 
-        username, 
-        email,
-        avatar,
-        role_id,
-        location,
-        website,
-        bio,
-        created_at,
-        last_login as last_activity_at,
-        (SELECT COUNT(*) FROM posts WHERE user_id = users.id) as posts_count,
-        (SELECT COUNT(*) FROM threads WHERE user_id = users.id) as threads_count
-      FROM users 
-      WHERE id = ?`,
-      [userId],
-      (err, user) => {
-        if (err) {
-          console.error('Błąd pobierania profilu użytkownika:', err);
-          return res.status(500).json({ error: 'Błąd serwera' });
-        }
+    const userQuery = `
+      SELECT 
+        u.id, 
+        u.username, 
+        u.email,
+        u.avatar,
+        u.location,
+        u.website,
+        u.bio,
+        u.created_at,
+        u.last_login as last_activity_at,
+        u.reputation,
+        (SELECT COUNT(*) FROM posts WHERE user_id = u.id) as posts_count,
+        (SELECT COUNT(*) FROM threads WHERE user_id = u.id) as threads_count,
+        GROUP_CONCAT(DISTINCT r.id) as role_ids,
+        GROUP_CONCAT(DISTINCT r.name) as role_names
+      FROM users u
+      LEFT JOIN user_roles ur ON u.id = ur.user_id
+      LEFT JOIN roles r ON ur.role_id = r.id
+      WHERE u.id = ?
+      GROUP BY u.id
+    `;
 
-        if (!user) {
-          return res.status(404).json({ error: 'Użytkownik nie znaleziony' });
-        }
-
-        res.json({
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          avatar: user.avatar,
-          role_id: user.role_id,
-          location: user.location,
-          website: user.website,
-          bio: user.bio,
-          created_at: user.created_at,
-          last_activity_at: user.last_activity_at,
-          posts_count: user.posts_count,
-          threads_count: user.threads_count
-        });
+    db.get(userQuery, [userId], (err, user) => {
+      if (err) {
+        console.error('Błąd pobierania profilu użytkownika:', err);
+        return res.status(500).json({ error: 'Błąd serwera' });
       }
-    );
+
+      if (!user) {
+        return res.status(404).json({ error: 'Użytkownik nie znaleziony' });
+      }
+
+      // Przetwórz role na tablicę obiektów
+      const roles = user.role_ids 
+        ? user.role_ids.split(',').map((id, index) => ({
+            id: parseInt(id),
+            name: user.role_names.split(',')[index]
+          }))
+        : [];
+
+      res.json({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar,
+        roles: roles, // Zamiast pojedynczego role_id
+        location: user.location,
+        website: user.website,
+        bio: user.bio,
+        created_at: user.created_at,
+        last_activity_at: user.last_activity_at,
+        reputation: user.reputation || 0,
+        posts_count: user.posts_count || 0,
+        threads_count: user.threads_count || 0
+      });
+    });
 
   } catch (error) {
     console.error('Błąd pobierania profilu użytkownika:', error);
@@ -3139,11 +3154,6 @@ app.get('/api/admin/reputation/top-users', authenticateToken, requirePermission(
 app.get('/api/users/:userId/achievements', authenticateToken, (req, res) => {
   const userId = req.params.userId;
   const currentUserId = req.user.id;
-
-  // Sprawdź czy użytkownik próbuje pobrać swoje osiągnięcia
-  if (parseInt(userId) !== currentUserId) {
-    return res.status(403).json({ error: 'Brak uprawnień do przeglądania osiągnięć tego użytkownika' });
-  }
 
   const query = `
     SELECT 
@@ -3863,6 +3873,7 @@ async function unlockAchievement(userId, achievementId) {
 
 BackupRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
 PermissionRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
+SeoRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
 
 // Funkcja sprawdzająca wymagania osiągnięcia
 async function checkAchievementRequirements(userId, achievement, requirements, currentActivityType) {

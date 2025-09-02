@@ -101,10 +101,10 @@ function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       category_id INTEGER NOT NULL,
       permission_id INTEGER NOT NULL,
+      permission_type TEXT DEFAULT 'read',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE,
       FOREIGN KEY (permission_id) REFERENCES permissions (id) ON DELETE CASCADE,
-      UNIQUE(category_id, permission_id)
+      UNIQUE(category_id, permission_id, permission_type)
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS threads (
@@ -256,6 +256,36 @@ function initDatabase() {
     db.run(`CREATE INDEX IF NOT EXISTS idx_reputation_votes_target ON reputation_votes (target_type, target_id);
       CREATE INDEX IF NOT EXISTS idx_reputation_votes_user ON reputation_votes (user_id);
       CREATE INDEX IF NOT EXISTS idx_reputation_votes_created ON reputation_votes (created_at);`);
+      
+    // Seo
+    
+    db.run(`-- Tabela ustawień SEO
+CREATE TABLE IF NOT EXISTS seo_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  home_title TEXT,
+  home_description TEXT,
+  global_keywords TEXT,
+  schema_enabled INTEGER DEFAULT 1,
+  open_graph_enabled INTEGER DEFAULT 1,
+  twitter_cards_enabled INTEGER DEFAULT 1,
+  robots_txt TEXT,
+  sitemap_url TEXT,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+
+db.run(`CREATE TABLE IF NOT EXISTS category_seo (
+  category_id INTEGER PRIMARY KEY,
+  seo_title TEXT,
+  seo_description TEXT,
+  keywords TEXT,
+  FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE
+);`);
+
+db.run(`CREATE TABLE IF NOT EXISTS seo_audits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  audit_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  results TEXT
+);`);
       
     // System osiągnięć
     db.run(`CREATE TABLE IF NOT EXISTS achievements (

@@ -43,6 +43,10 @@
         <Icon icon="mdi:shield-account" />
         Uprawnienia
       </el-menu-item>
+      <el-menu-item index="seo-management" v-if="this.$hasPermission('manage_seo')">
+        <Icon icon="mdi:google" />
+        SEO
+      </el-menu-item>
     </el-menu>
     
     <div class="admin-content">
@@ -54,6 +58,7 @@
       <AchievementsManagement v-if="activeSubView === 'achievements-management' && this.$hasPermission('manage_users')" />
       <BackupManagement v-if="activeSubView === 'backup-management' && this.$hasPermission('manage_backups')" />
       <PermissionManager v-if="activeSubView === 'permission-manager' && this.$hasPermission('view_permissions')" />
+      <SeoManagement v-if="activeSubView === 'seo-management' && this.$hasPermission('manage_seo')" />
       
       <div v-if="!activeSubView" class="admin-welcome">
         <el-empty description="Wybierz sekcję do zarządzania z menu powyżej" />
@@ -72,6 +77,7 @@ import ReputationManagement from './ReputationManagement.vue';
 import AchievementsManagement from './AchievementsManagement.vue';
 import BackupManagement from './BackupManagement.vue';
 import PermissionManager from './PermissionManager.vue';
+import SeoManagement from './SeoManagement.vue';
 
 export default {
   name: 'AdminPanel',
@@ -84,7 +90,8 @@ export default {
     ReputationManagement,
     AchievementsManagement,
     BackupManagement,
-    PermissionManager
+    PermissionManager,
+    SeoManagement
   },
   props: {
     currentUser: Object
@@ -98,7 +105,7 @@ export default {
     hasAnyPermission() {
       const requiredPermissions = [
         'manage_users', 'manage_categories', 'manage_threads', 
-        'manage_posts', 'manage_backups', 'view_permissions'
+        'manage_posts', 'manage_backups', 'view_permissions', 'manage_seo'
       ];
       return this.$hasAnyPermission(requiredPermissions);
     }

@@ -123,6 +123,10 @@
               <Icon icon="mdi:refresh" />
               Odśwież
             </el-button>
+              <el-button type="primary" @click="showPermissionDialog(null)">
+                <Icon icon="mdi:plus" />
+                Nowe uprawnienie
+              </el-button>
           </div>
 
           <div class="permission-categories">
@@ -165,6 +169,22 @@
                       />
                     </el-select>
                   </div>
+                  
+		  <div class="permission-actions">
+		    <el-button
+		      size="small"
+		      @click="showPermissionDialog(permission)"
+		    >
+		      <Icon icon="mdi:pencil" />
+		    </el-button>
+		    <el-button 
+		      size="small" 
+		      type="danger" 
+		      @click="confirmDeletePermission(permission)"
+		    >
+		      <Icon icon="mdi:delete" />
+		    </el-button>
+		  </div>
                 </div>
               </div>
             </div>
@@ -597,6 +617,61 @@
         </div>
       </div>
     </el-dialog>
+    
+        <!-- Dialog edycji uprawnienia -->
+    <el-dialog
+      v-model="permissionDialog.visible"
+      :title="permissionDialog.isEdit ? 'Edytuj uprawnienie' : 'Nowe uprawnienie'"
+      width="600px"
+    >
+      <el-form
+        :model="permissionDialog.form"
+        :rules="permissionDialog.rules"
+        ref="permissionFormRef"
+        label-width="140px"
+      >
+
+        <el-form-item label="Nazwa" prop="name">
+          <el-input
+            v-model="permissionDialog.form.name"
+            placeholder="Nazwa uprawnienia"
+            maxlength="50"
+          />
+        </el-form-item>
+
+        <el-form-item label="Opis" prop="description">
+          <el-input
+            v-model="permissionDialog.form.description"
+            type="textarea"
+            :rows="3"
+            placeholder="Opis uprawnienia"
+            maxlength="255"
+          />
+        </el-form-item>
+
+        <el-form-item label="Kategoria" prop="category">
+          <el-select
+            v-model="permissionDialog.form.category"
+            placeholder="Wybierz kategorię"
+          >
+            <el-option
+              v-for="category in availableCategories"
+              :key="category"
+              :label="category"
+              :value="category"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="permissionDialog.visible = false">Anuluj</el-button>
+        <el-button type="primary" @click="savePermission">
+          {{ permissionDialog.isEdit ? 'Zapisz' : 'Utwórz' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -681,6 +756,30 @@ export default {
       showIconPicker: false,
       iconSearch: '',
       
+      permissionDialog: {
+        visible: false,
+        isEdit: false,
+        form: {
+          name: '',
+          description: '',
+          category: ''
+        },
+        rules: {
+          name: [
+            { required: true, message: 'Nazwa uprawnienia jest wymagana', trigger: 'blur' },
+            { min: 2, message: 'Nazwa musi mieć co najmniej 2 znaki', trigger: 'blur' }
+          ],
+          category: [
+            { required: true, message: 'Kategoria jest wymagana', trigger: 'change' }
+          ]
+        }
+      },
+      
+      // Available categories for permissions
+      availableCategories: [
+        'Forum', 'Administracja', 'Moderacja', 'Użytkownicy', 'Kategorie', 'System', 'Inne'
+      ],
+      
       // Predefined colors
       predefinedColors: [
         '#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399',
@@ -724,7 +823,6 @@ export default {
       try {
         const response = await axios.get('/admin/permissions/stats');
         this.stats = response.data;
-         console.log(this.stats);
       } catch (error) {
         console.error('Error loading stats:', error);
       }
@@ -742,6 +840,7 @@ export default {
             const usersResponse = await axios.get(`/admin/roles/${role.id}/users-count`);
             return {
               ...role,
+              is_system: role.is_system === 1,
               user_count: usersResponse.data.count || 0,
               permission_count: usersResponse.data.permission_count || 0
             };
@@ -749,6 +848,7 @@ export default {
             console.error(`Error loading user count for role ${role.id}:`, error);
             return {
               ...role,
+              is_system: role.is_system === 1,
               user_count: 0,
               permission_count: 0
             };
@@ -995,6 +1095,7 @@ getCategoryDescription(categoryName) {
         };
         
         await axios.put(`/admin/categories/${category.id}/permissions`, {
+          type: type,
           [type]: category[fieldMap[type]]
         });
         
@@ -1029,6 +1130,83 @@ getCategoryDescription(categoryName) {
         this.loadingAuditLogs = false;
       }
     },
+    
+    showPermissionDialog(permission) {
+      if (permission) {
+        this.permissionDialog.isEdit = true;
+        this.permissionDialog.form = { 
+          id: permission.id,
+          name: permission.name,
+          description: permission.description,
+          category: permission.category || 'Inne'
+        };
+      } else {
+        this.permissionDialog.isEdit = false;
+        this.permissionDialog.form = {
+          name: '',
+          description: '',
+          category: 'Inne'
+        };
+      }
+      this.permissionDialog.visible = true;
+    },
+    
+    async savePermission() {
+      try {
+        this.$refs.permissionFormRef.validate(async (valid) => {
+          if (!valid) return;
+          
+          const endpoint = this.permissionDialog.isEdit ? 
+            `/admin/permissions/${this.permissionDialog.form.id}` : 
+            '/admin/permissions';
+          
+          const method = this.permissionDialog.isEdit ? 'put' : 'post';
+          
+          // Usuń id z formularza jeśli tworzymy nowe uprawnienie
+          const formData = { ...this.permissionDialog.form };
+          if (!this.permissionDialog.isEdit) {
+            delete formData.id;
+          }
+          
+          await axios[method](endpoint, formData);
+          
+          this.$message.success(
+            this.permissionDialog.isEdit ? 
+            'Uprawnienie zostało zaktualizowane' : 
+            'Uprawnienie zostało utworzone'
+          );
+          
+          this.permissionDialog.visible = false;
+          await this.loadPermissions();
+        });
+      } catch (error) {
+        this.$message.error(error.response?.data?.error || 'Błąd podczas zapisywania uprawnienia');
+      }
+    },
+    
+    async deletePermission(permission) {
+      try {
+        await axios.delete(`/admin/permissions/${permission.id}`);
+        this.$message.success('Uprawnienie zostało usunięte');
+        await this.loadPermissions();
+      } catch (error) {
+        this.$message.error(error.response?.data?.error || 'Błąd podczas usuwania uprawnienia');
+      }
+    },
+    
+	confirmDeletePermission(permission) {
+	  this.$confirm(
+	    `Czy na pewno chcesz usunąć uprawnienie "${permission.name}"?`,
+	    'Potwierdzenie usunięcia',
+	    {
+	      confirmButtonText: 'Tak, usuń',
+	      cancelButtonText: 'Anuluj',
+	      type: 'warning'
+	    }
+	  ).then(async () => {
+	    await this.deletePermission(permission);
+	  }).catch(() => {});
+	},
     
     showAuditDetails(row) {
       this.auditDetails.data = row;
@@ -1643,6 +1821,12 @@ getRoleColor(roleName) {
 
 /* Priorytet help */
 .priority-help {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 4px;
+}
+
+.form-help {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   margin-top: 4px;
