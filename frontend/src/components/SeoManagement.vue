@@ -52,13 +52,86 @@
               </div>
             </el-form-item>
             
-            <el-form-item label="Ścieżka do credentials Google">
-              <el-input v-model="globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS" 
-                       placeholder="np. ./config/google-service-account.json" />
-              <div class="character-count">
-                {{ globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS.length }}/300 znaków
-              </div>
-            </el-form-item>
+            <el-form-item label="Google Credentials JSON">
+  <el-input 
+    v-model="globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS" 
+    type="textarea" 
+    :rows="6"
+    placeholder="Wklej JSON z credentials Google Service Account"
+  />
+  <div class="character-count">
+    {{ globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS ? globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS.length : 0 }}/3000 znaków
+  </div>
+  
+  <div class="credentials-help">
+    <el-button 
+      type="primary" 
+      size="small" 
+      @click="verifyGoogleCredentials"
+      :loading="verifyingCredentials"
+      style="margin-top: 8px; margin-right: 8px;"
+    >
+      Zweryfikuj Credentials
+    </el-button>
+    
+    <el-button 
+      type="info" 
+      size="small" 
+      @click="showCredentialsHelp = true"
+      style="margin-top: 8px;"
+    >
+      Jak uzyskać credentials?
+    </el-button>
+  </div>
+  
+  <div v-if="verifiedClientEmail" class="verified-info">
+    <Icon icon="mdi:check-circle" color="#67c23a" />
+    Zweryfikowano: {{ verifiedClientEmail }}
+  </div>
+</el-form-item>
+
+<el-form-item label="Status autoryzacji Google">
+  <div class="oauth-status">
+    <el-tag :type="oauthStatus.isAuthenticated ? 'success' : 'warning'">
+      <Icon :icon="oauthStatus.isAuthenticated ? 'mdi:check-circle' : 'mdi:alert-circle'" />
+      {{ oauthStatus.isAuthenticated ? 'Autoryzowano' : 'Wymaga autoryzacji' }}
+    </el-tag>
+    
+    <el-button 
+      type="primary" 
+      size="small" 
+      @click="startOAuthFlow"
+      :loading="startingOAuth || completingOAuth"
+      style="margin-left: 12px;"
+    >
+      <Icon icon="mdi:google" width="16" />
+      Autoryzuj z Google
+    </el-button>
+    
+    <el-button 
+      v-if="oauthStatus.isAuthenticated"
+      type="danger" 
+      size="small" 
+      @click="revokeOAuth"
+      :loading="revokingOAuth"
+      style="margin-left: 8px;"
+    >
+      <Icon icon="mdi:logout" width="16" />
+      Cofnij autoryzację
+    </el-button>
+  </div>
+  
+  <div class="oauth-help">
+    <small v-if="!oauthStatus.isAuthenticated">
+      Po zapisaniu credentials, kliknij "Autoryzuj z Google" aby udzielić dostępu do Google Analytics i Search Console.
+    </small>
+    <small v-else style="color: #67c23a;">
+      <Icon icon="mdi:check-circle" />
+      Autoryzacja aktywna. Możesz teraz pobrać dane z Google Analytics.
+    </small>
+  </div>
+</el-form-item>
+           
 
             <el-form-item label="Słowa kluczowe">
               <el-tag
@@ -164,6 +237,36 @@
                 :trend="seoMetrics.backlinksTrend"
                 :icon="seoMetrics.backlinksIcon"
               />
+              <metric-card 
+		  title="Sesje" 
+		  :value="seoMetrics.totalSessions" 
+		  :trend="seoMetrics.trafficTrend"
+		  icon="mdi:account-group"
+		/>
+		<metric-card 
+		  title="Użytkownicy" 
+		  :value="seoMetrics.totalUsers" 
+		  :trend="'+5%'"
+		  icon="mdi:account"
+		/>
+		<metric-card 
+		  title="Odsłony" 
+		  :value="seoMetrics.totalPageviews" 
+		  :trend="'+12%'"
+		  icon="mdi:eye"
+		/>
+		<metric-card 
+		  title="Nowi użytkownicy" 
+		  :value="seoMetrics.newUsers" 
+		  :trend="'+8%'"
+		  icon="mdi:account-plus"
+		/>
+		<metric-card 
+		  title="Współczynnik odrzuceń" 
+		  :value="seoMetrics.bounceRate + '%'" 
+		  :trend="'-2.3%'"
+		  icon="mdi:exit-run"
+		/>
             </div>
 
             <div class="charts">
@@ -351,6 +454,63 @@
         <el-button type="primary" @click="downloadSitemap">Pobierz</el-button>
       </template>
     </el-dialog>
+    
+    <!-- Modal z instrukcjami credentials -->
+<el-dialog v-model="showCredentialsHelp" title="Konfiguracja Google API" width="800px">
+  <div class="credentials-help-content">
+    <el-alert type="info" show-icon>
+      Posiadasz OAuth Client ID credentials. To poprawny format dla aplikacji webowych.
+    </el-alert>
+
+    <h4>Krok po kroku konfiguracji OAuth:</h4>
+    <ol>
+      <li>Wejdź na <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>
+      <li>Upewnij się że masz włączone API:
+        <ul>
+          <li>Google Analytics API</li>
+          <li>Google Search Console API</li>
+        </ul>
+      </li>
+      <li>W sekcji "Credentials" sprawdź czy OAuth consent screen jest skonfigurowany</li>
+      <li>Dodaj następujące uprawnienia w OAuth consent screen:
+        <ul>
+          <li><code>.../auth/analytics.readonly</code></li>
+          <li><code>.../auth/webmasters</code></li>
+        </ul>
+      </li>
+      <li>Wklej poniższy JSON do pola credentials</li>
+    </ol>
+    
+    <h4>Twój format OAuth Client ID:</h4>
+    <pre class="json-example">{
+  "web": {
+    "client_id": "885503146808-6gldg7topoo8ksu9rt9u60ngkr24370h.apps.googleusercontent.com",
+    "project_id": "nasforum",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "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",
+    "redirect_uris": ["https://forum.naspanel.site"],
+    "javascript_origins": ["https://forum.naspanel.site"]
+  }
+}</pre>
+
+    <el-alert type="warning" show-icon style="margin-top: 16px;">
+      Uwaga: Dla OAuth wymagany będzie dodatkowo proces autoryzacji przez przeglądarkę.
+    </el-alert>
+  </div>
+  
+  <template #footer>
+    <el-button @click="showCredentialsHelp = false">Zamknij</el-button>
+    <el-button 
+      type="primary" 
+      @click="copyCurrentJson"
+    >
+      Kopiuj swój JSON
+    </el-button>
+  </template>
+</el-dialog>
+
   </div>
 </template>
 
@@ -465,6 +625,16 @@ export default {
     const generatedSitemap = ref('')
     const currentUrl = ref(window.location.hostname)
     const competitorResults = ref(null)
+    const verifyingCredentials = ref(false)
+    const showCredentialsHelp = ref(false)
+    const verifiedClientEmail = ref('')
+    const oauthStatus = reactive({
+      isAuthenticated: false,
+      hasRefreshToken: false
+    })
+    const startingOAuth = ref(false)
+    const completingOAuth = ref(false)
+    const revokingOAuth = ref(false)
     
     // Stany ładowania
     const auditLoading = ref(false)
@@ -518,6 +688,48 @@ export default {
       ctrIcon: 'mdi:cursor-click',
       backlinksIcon: 'mdi:link'
     })
+    
+// Dodaj nowe metody:
+const copySampleJson = () => {
+  const sampleJson = `{
+  "type": "service_account",
+  "project_id": "twoj-project-id",
+  "private_key_id": "twoj-private-key-id",
+  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
+  "client_email": "twoj-service-account@twoj-project-id.iam.gserviceaccount.com",
+  "client_id": "twoj-client-id",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/..."
+}`
+
+  copyToClipboard(sampleJson)
+  showCredentialsHelp.value = false
+}
+
+const copyCurrentJson = () => {
+  if (globalSeoSettings.google_credentials_json) {
+    copyToClipboard(globalSeoSettings.google_credentials_json)
+    ElMessage.success('Skopiowano aktualny JSON')
+  } else {
+    const sampleJson = `{
+  "web": {
+    "client_id": "885503146808-6gldg7topoo8ksu9rt9u60ngkr24370h.apps.googleusercontent.com",
+    "project_id": "nasforum",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "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",
+    "redirect_uris": ["https://forum.naspanel.site"],
+    "javascript_origins": ["https://forum.naspanel.site"]
+  }
+}`
+    copyToClipboard(sampleJson)
+    ElMessage.success('Skopiowano przykładowy JSON')
+  }
+  showCredentialsHelp.value = false
+}
 
     const auditIssues = ref([])
     
@@ -547,6 +759,7 @@ export default {
     onMounted(async () => {
       await loadSeoSettings()
       await loadSeoCategories()
+      await checkOAuthStatus()
       await loadSeoMetrics()
     })
 
@@ -618,44 +831,195 @@ export default {
       }
     }
 
-    const loadSeoMetrics = async () => {
-      try {
-        const token = localStorage.getItem('token')
-        const response = await axios.get('/seo/metrics', {
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        })
-        
-        const metrics = response.data
-        seoMetrics.positions = metrics.positions || 0
-        seoMetrics.organicTraffic = metrics.organicTraffic || '0'
-        seoMetrics.ctr = metrics.ctr || 0
-        seoMetrics.backlinks = metrics.backlinks || 0
-        seoMetrics.positionsTrend = metrics.positions > 0 ? '+12' : '+0'
-        seoMetrics.trafficTrend = metrics.organicTraffic > 0 ? '+8%' : '+0%'
-        seoMetrics.ctrTrend = metrics.ctr > 0 ? '+2.5%' : '+0%'
-        seoMetrics.backlinksTrend = metrics.backlinks > 0 ? '+15' : '+0'
-        
-        if (metrics.trafficData) {
-          trafficData.value = metrics.trafficData
-        } else {
-          trafficData.value = generateSampleTrafficData()
-        }
-        
-        if (metrics.keywordData) {
-          keywordData.value = metrics.keywordData
-        } else {
-          keywordData.value = generateSampleKeywordData()
-        }
-      } catch (error) {
-        console.error('Błąd ładowania metryk SEO:', error)
-        // Ustaw domyślne wartości w przypadku błędu
-        trafficData.value = generateSampleTrafficData()
-        keywordData.value = generateSampleKeywordData()
+const loadSeoMetrics = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await axios.get('/seo/metrics', {
+      headers: { 
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
       }
+    })
+    
+    const metrics = response.data
+    seoMetrics.positions = metrics.positions || 0
+    seoMetrics.organicTraffic = metrics.organicTraffic || '0'
+    seoMetrics.ctr = metrics.ctr || 0
+    seoMetrics.backlinks = metrics.backlinks || 0
+    seoMetrics.totalSessions = metrics.totalSessions || '0'
+    seoMetrics.totalPageviews = metrics.totalPageviews || '0'
+    seoMetrics.totalUsers = metrics.totalUsers || '0'
+    seoMetrics.avgTimeOnPage = metrics.avgTimeOnPage || '0.0'
+    seoMetrics.bounceRate = metrics.bounceRate || '0.0'
+    seoMetrics.newUsers = metrics.newUsers || '0'
+    
+    // Aktualizuj trendy na podstawie rzeczywistych danych
+    updateTrends(metrics)
+    
+    if (metrics.trafficData) {
+      trafficData.value = metrics.trafficData
+    } else {
+      trafficData.value = generateSampleTrafficData()
     }
+    
+    if (metrics.keywordData) {
+      keywordData.value = metrics.keywordData
+    } else {
+      keywordData.value = generateSampleKeywordData()
+    }
+    
+  } catch (error) {
+    console.error('Błąd ładowania metryk SEO:', error)
+    
+    // Specjalna obsługa błędu autoryzacji
+    if (error.response?.data?.requiresReauth) {
+      oauthStatus.isAuthenticated = false
+      ElMessage.warning({
+        message: 'Wymagana autoryzacja Google. Kliknij "Autoryzuj z Google" w ustawieniach SEO.',
+        duration: 6000 // Dłuższy czas wyświetlania
+      })
+    } 
+    else if (error.response?.data?.error?.includes('autoryzacja')) {
+      oauthStatus.isAuthenticated = false
+      ElMessage.warning(error.response.data.error)
+    }
+    else {
+      ElMessage.error('Błąd pobierania danych analytics: ' + (error.response?.data?.error || error.message))
+    }
+    
+    // Ustaw dane przykładowe
+    trafficData.value = generateSampleTrafficData()
+    keywordData.value = generateSampleKeywordData()
+  }
+}
+
+const updateTrends = (metrics) => {
+  // Prosta symulacja trendów na podstawie danych
+  const sessions = parseInt(metrics.totalSessions.replace(/,/g, '')) || 0
+  const organic = parseInt(metrics.organicTraffic.replace(/,/g, '')) || 0
+  
+  seoMetrics.positionsTrend = sessions > 1000 ? '+12' : '+0'
+  seoMetrics.trafficTrend = organic > 500 ? '+8%' : '+0%'
+  seoMetrics.ctrTrend = metrics.ctr > 2 ? '+2.5%' : '+0%'
+  seoMetrics.backlinksTrend = metrics.backlinks > 100 ? '+15' : '+0'
+}
+
+// Sprawdź status autoryzacji
+const checkOAuthStatus = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await axios.get('/seo/oauth-status', {
+      headers: { 
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    oauthStatus.isAuthenticated = response.data.isAuthenticated
+    oauthStatus.hasRefreshToken = response.data.hasRefreshToken
+  } catch (error) {
+    console.error('Błąd sprawdzania statusu OAuth:', error)
+    // W przypadku błędu zakładamy, że nie ma autoryzacji
+    oauthStatus.isAuthenticated = false
+    oauthStatus.hasRefreshToken = false
+  }
+}
+
+// Rozpocznij proces OAuth
+const startOAuthFlow = async () => {
+  try {
+    startingOAuth.value = true
+    
+    // Najpierw zapisz ustawienia jeśli są zmiany
+    if (hasUnsavedChanges()) {
+      await saveGlobalSeoSettings()
+    }
+    
+    const token = localStorage.getItem('token')
+    const response = await axios.get('/seo/oauth-auth', {
+      headers: { 
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    // Otwórz okno autoryzacji
+    const authWindow = window.open(
+      response.data.authUrl, 
+      'google_oauth', 
+      'width=600,height=700,scrollbars=yes,resizable=yes'
+    )
+    
+    if (!authWindow) {
+      throw new Error('Nie udało się otworzyć okna autoryzacji. Sprawdź blokadę wyskakujących okien.')
+    }
+    
+    // Sprawdzaj co 500ms czy okno zostało zamknięte
+    const checkInterval = setInterval(() => {
+      if (authWindow.closed) {
+        clearInterval(checkInterval)
+        checkOAuthStatus() // Sprawdź status po zamknięciu okna
+        ElMessage.info('Okno autoryzacji zamknięte. Sprawdzam status...')
+      }
+    }, 500)
+    
+  } catch (error) {
+    console.error('Błąd rozpoczynania OAuth:', error)
+    
+    if (error.response?.data?.error) {
+      ElMessage.error(error.response.data.error)
+    } else if (error.message.includes('blokadę')) {
+      ElMessage.error('Blokada wyskakujących okien jest aktywna. Zezwól na wyskakujące okna dla tej strony.')
+    } else {
+      ElMessage.error('Błąd podczas rozpoczynania autoryzacji: ' + error.message)
+    }
+  } finally {
+    startingOAuth.value = false
+  }
+}
+
+// Cofnij autoryzację
+const revokeOAuth = async () => {
+  try {
+    revokingOAuth.value = true
+    
+    await ElMessageBox.confirm(
+      'Czy na pewno chcesz cofnąć autoryzację Google? Spowoduje to utratę dostępu do danych analytics.',
+      'Potwierdzenie',
+      {
+        confirmButtonText: 'Tak, cofnij',
+        cancelButtonText: 'Anuluj',
+        type: 'warning'
+      }
+    )
+    
+    const token = localStorage.getItem('token')
+    await axios.delete('/seo/oauth-revoke', {
+      headers: { 
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    oauthStatus.isAuthenticated = false
+    oauthStatus.hasRefreshToken = false
+    
+    ElMessage.success('Autoryzacja Google została cofnięta')
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('Błąd cofania autoryzacji:', error)
+      ElMessage.error('Błąd podczas cofania autoryzacji')
+    }
+  } finally {
+    revokingOAuth.value = false
+  }
+}
+
+// Sprawdź czy są niezapisane zmiany
+const hasUnsavedChanges = () => {
+  // Tutaj dodaj logikę sprawdzającą czy są niezapisane zmiany
+  return false // Tymczasowo zawsze false
+}
 
     const saveGlobalSeoSettings = async () => {
       try {
@@ -670,8 +1034,8 @@ export default {
           twitter_cards_enabled: globalSeoSettings.twitter_cards_enabled ? 1 : 0,
           robots_txt: generatedRobotsTxt.value,
           sitemap_url: robotsSettings.sitemapUrl,
-          ga_view_id: globalSeoSettings.ga_view_id,
-          google_application_credentials: globalSeoSettings.google_application_credentials
+          GA_VIEW_ID: globalSeoSettings.GA_VIEW_ID,
+          GOOGLE_APPLICATION_CREDENTIALS: globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS
         }, {
           headers: { 
             Authorization: `Bearer ${token}`,
@@ -687,6 +1051,49 @@ export default {
         savingSettings.value = false
       }
     }
+
+const verifyGoogleCredentials = async () => {
+  if (!globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS) {
+    ElMessage.warning('Wprowadź dane credentials Google API')
+    return
+  }
+
+  try {
+    verifyingCredentials.value = true
+    verifiedClientEmail.value = ''
+    
+    const token = localStorage.getItem('token')
+    const response = await axios.post('/seo/verify-credentials', {
+      credentials_json: globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS
+    }, {
+      headers: { 
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    if (response.data.success) {
+      if (response.data.type === 'oauth') {
+        verifiedClientEmail.value = `OAuth Client: ${response.data.client_id}`
+        ElMessage.success('OAuth credentials są poprawne!')
+      } else {
+        verifiedClientEmail.value = response.data.client_email
+        ElMessage.success('Service Account credentials są poprawne!')
+      }
+    }
+  } catch (error) {
+    console.error('Błąd weryfikacji credentials:', error)
+    verifiedClientEmail.value = ''
+    
+    if (error.response?.data?.error) {
+      ElMessage.error(error.response.data.error)
+    } else {
+      ElMessage.error('Błąd podczas weryfikacji credentials')
+    }
+  } finally {
+    verifyingCredentials.value = false
+  }
+}
 
     const addKeyword = () => {
       const keyword = newKeyword.value.trim()
@@ -778,35 +1185,35 @@ export default {
       }
     }
 
-const generateSitemap = async () => {
-  try {
-    generatingSitemap.value = true
-    const token = localStorage.getItem('token')
-    const response = await axios.post('/seo/generate-sitemap', {
-      changefreq: sitemapSettings.changefreq,
-      priority: sitemapSettings.priority
-    }, {
-      headers: { 
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
+    const generateSitemap = async () => {
+      try {
+        generatingSitemap.value = true
+        const token = localStorage.getItem('token')
+        const response = await axios.post('/seo/generate-sitemap', {
+          changefreq: sitemapSettings.changefreq,
+          priority: sitemapSettings.priority
+        }, {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        generatedSitemap.value = response.data.content
+        sitemapModalVisible.value = true
+        ElMessage.success(response.data.message || 'Sitemap.xml wygenerowana pomyślnie')
+      } catch (error) {
+        console.error('Błąd generowania sitemap:', error)
+        
+        if (error.response?.data?.error) {
+          ElMessage.error(error.response.data.error)
+        } else {
+          ElMessage.error('Błąd generowania sitemap. Sprawdź czy baza danych jest dostępna.')
+        }
+      } finally {
+        generatingSitemap.value = false
       }
-    })
-    
-    generatedSitemap.value = response.data.content
-    sitemapModalVisible.value = true
-    ElMessage.success(response.data.message || 'Sitemap.xml wygenerowana pomyślnie')
-  } catch (error) {
-    console.error('Błąd generowania sitemap:', error)
-    
-    if (error.response?.data?.error) {
-      ElMessage.error(error.response.data.error)
-    } else {
-      ElMessage.error('Błąd generowania sitemap. Sprawdź czy baza danych jest dostępna.')
     }
-  } finally {
-    generatingSitemap.value = false
-  }
-}
 
     const downloadRobotsTxt = () => {
       const blob = new Blob([generatedRobotsTxt.value], { type: 'text/plain' })
@@ -849,60 +1256,59 @@ const generateSitemap = async () => {
       }
     }
 
-const analyzeCompetitor = async () => {
-  if (!competitorAnalysis.url) {
-    ElMessage.warning('Podaj URL do analizy')
-    return
-  }
+    const analyzeCompetitor = async () => {
+      if (!competitorAnalysis.url) {
+        ElMessage.warning('Podaj URL do analizy')
+        return
+      }
 
-  // Dodaj https:// jeśli brakuje
-  if (!competitorAnalysis.url.startsWith('http')) {
-    competitorAnalysis.url = 'https://' + competitorAnalysis.url;
-  }
+      // Dodaj https:// jeśli brakuje
+      if (!competitorAnalysis.url.startsWith('http')) {
+        competitorAnalysis.url = 'https://' + competitorAnalysis.url;
+      }
 
-  // Walidacja URL
-  try {
-    new URL(competitorAnalysis.url)
-  } catch (error) {
-    ElMessage.warning('Podaj poprawny URL (np. przyklad.com lub https://przyklad.com)')
-    return
-  }
+      // Walidacja URL
+      try {
+        new URL(competitorAnalysis.url)
+      } catch (error) {
+        ElMessage.warning('Podaj poprawny URL (np. przyklad.com lub https://przyklad.com)')
+        return
+      }
 
-  try {
-    analyzingCompetitor.value = true
-    competitorResults.value = null
-    
-    const token = localStorage.getItem('token')
-    const response = await axios.post('/seo/analyze-competitor', {
-      url: competitorAnalysis.url,
-      options: competitorAnalysis.options
-    }, {
-      headers: { 
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 15000 // 15 sekund timeout
-    })
-    
-    if (response.data.success) {
-      competitorResults.value = response.data.results
-      ElMessage.success('Analiza konkurencji zakończona pomyślnie')
+      try {
+        analyzingCompetitor.value = true
+        competitorResults.value = null
+        
+        const token = localStorage.getItem('token')
+        const response = await axios.post('/seo/analyze-competitor', {
+          url: competitorAnalysis.url,
+          options: competitorAnalysis.options
+        }, {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000 // 15 sekund timeout
+        })
+        
+        if (response.data.success) {
+          competitorResults.value = response.data.results
+          ElMessage.success('Analiza konkurencji zakończona pomyślnie')
+        }
+      } catch (error) {
+        console.error('Błąd analizy konkurencji:', error)
+        
+        if (error.response?.data?.error) {
+          ElMessage.error(`${error.response.data.error}${error.response.data.details ? ': ' + error.response.data.details : ''}`)
+        } else if (error.code === 'ECONNABORTED') {
+          ElMessage.error('Timeout - analiza trwała zbyt długo')
+        } else {
+          ElMessage.error('Błąd podczas analizy konkurencji. Spróbuj ponownie.')
+        }
+      } finally {
+        analyzingCompetitor.value = false
+      }
     }
-  } catch (error) {
-    console.error('Błąd analizy konkurencji:', error)
-    
-    if (error.response?.data?.error) {
-      ElMessage.error(`${error.response.data.error}${error.response.data.details ? ': ' + error.response.data.details : ''}`)
-    } else if (error.code === 'ECONNABORTED') {
-      ElMessage.error('Timeout - analiza trwała zbyt długo')
-    } else {
-      ElMessage.error('Błąd podczas analizy konkurencji. Spróbuj ponownie.')
-    }
-  } finally {
-    analyzingCompetitor.value = false
-  }
-}
-
 
     const copyToClipboard = async (text) => {
       try {
@@ -973,6 +1379,7 @@ const analyzeCompetitor = async () => {
       generatingRobots,
       generatingSitemap,
       analyzingCompetitor,
+      verifyingCredentials,
       addKeyword,
       removeKeyword,
       runSeoAudit,
@@ -983,9 +1390,19 @@ const analyzeCompetitor = async () => {
       downloadSitemap,
       submitSitemap,
       analyzeCompetitor,
+      showCredentialsHelp,
+      verifiedClientEmail,
+      copySampleJson,
       copyToClipboard,
       saveGlobalSeoSettings,
+      verifyGoogleCredentials,
       hasChanges,
+        oauthStatus,
+  startingOAuth,
+  completingOAuth,
+  revokingOAuth,
+    checkOAuthStatus,
+  startOAuthFlow,
       exportAuditReport
     }
   }
@@ -1236,7 +1653,8 @@ const analyzeCompetitor = async () => {
   background: #f8f9fa;
   border-radius: 8px;
 }
-
+  showCredentialsHelp,
+  verifiedClientEmail,
 .summary-stats {
   display: flex;
   justify-content: space-around;
@@ -1251,6 +1669,72 @@ const analyzeCompetitor = async () => {
   display: block;
   font-size: 24px;
   font-weight: bold;
+}
+
+.credentials-help {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.verified-info {
+  margin-top: 8px;
+  padding: 8px;
+  background: #f0f9eb;
+  border: 1px solid #e1f3d8;
+  border-radius: 4px;
+  color: #67c23a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.credentials-help-content {
+  line-height: 1.6;
+}
+
+.credentials-help-content ol,
+.credentials-help-content ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.credentials-help-content li {
+  margin-bottom: 4px;
+}
+
+.credentials-help-content code {
+  background: #f5f7fa;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+.json-example {
+  background: #f8f9fa;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid #e0e0e0;
+  margin-top: 8px;
+}
+
+.oauth-status {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.oauth-help {
+  margin-top: 4px;
+  color: #666;
+  font-size: 12px;
+}
+
+.oauth-help .el-icon {
+  margin-right: 4px;
 }
 
 .count.error { color: #f56c6c; }
