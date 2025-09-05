@@ -484,7 +484,40 @@ async loadStats() {
         console.error('Błąd aktualizacji aktywności:', error);
       }
     },
-	handleCategoryVisited(categoryId) {
+        async loadSEOSettings() {
+      try {
+        const response = await axios.get('/seo-settings');
+        const seoSettings = response.data;
+        
+        // Aktualizuj metadania strony
+        if (seoSettings.home_title) {
+          document.title = seoSettings.home_title;
+        }
+        
+        if (seoSettings.home_description) {
+          let metaDescription = document.querySelector('meta[name="description"]');
+          if (!metaDescription) {
+            metaDescription = document.createElement('meta');
+            metaDescription.name = 'description';
+            document.head.appendChild(metaDescription);
+          }
+          metaDescription.content = seoSettings.home_description;
+        }
+        
+        if (seoSettings.global_keywords) {
+          let metaKeywords = document.querySelector('meta[name="keywords"]');
+          if (!metaKeywords) {
+            metaKeywords = document.createElement('meta');
+            metaKeywords.name = 'keywords';
+            document.head.appendChild(metaKeywords);
+          }
+          metaKeywords.content = seoSettings.global_keywords;
+        }
+      } catch (error) {
+        console.error('Błąd podczas pobierania ustawień SEO:', error);
+      }
+    },
+    handleCategoryVisited(categoryId) {
 	  // Odśwież status kategorii
 	  if (this.$refs.categoriesList && this.$refs.categoriesList.updateCategoryStatus) {
 	    const category = this.categories.find(c => c.id === categoryId);
@@ -534,6 +567,7 @@ async loadStats() {
     await this.loadCategories();
     await this.loadActiveThreads();
     await this.loadStats();
+    await this.loadSEOSettings();
   }
 }
 </script>

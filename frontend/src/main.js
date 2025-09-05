@@ -44,6 +44,42 @@ axios.interceptors.request.use(
   }
 )
 
+// Funkcja do pobierania i aktualizacji metadanych SEO
+async function updateSEOMetadata() {
+  try {
+    const response = await axios.get('/seo-settings');
+    const seoSettings = response.data;
+    
+    // Aktualizuj metadania strony
+    if (seoSettings.home_title) {
+      document.title = seoSettings.home_title;
+    }
+    
+    if (seoSettings.home_description) {
+      let metaDescription = document.querySelector('meta[name="description"]');
+      if (!metaDescription) {
+        metaDescription = document.createElement('meta');
+        metaDescription.name = 'description';
+        document.head.appendChild(metaDescription);
+      }
+      metaDescription.content = seoSettings.home_description;
+    }
+    
+    if (seoSettings.global_keywords) {
+      let metaKeywords = document.querySelector('meta[name="keywords"]');
+      if (!metaKeywords) {
+        metaKeywords = document.createElement('meta');
+        metaKeywords.name = 'keywords';
+        document.head.appendChild(metaKeywords);
+      }
+      metaKeywords.content = seoSettings.global_keywords;
+    }
+  } catch (error) {
+    console.error('Błąd podczas pobierania ustawień SEO:', error);
+  }
+}
+updateSEOMetadata();
+
 VueMarkdownEditor.use(vuepressTheme, {
   Prism,
   Hljs: hljs,

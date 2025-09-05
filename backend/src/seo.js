@@ -143,7 +143,9 @@ app.put('/api/seo/settings', authenticateToken, requirePermission('manage_seo'),
 
 // Funkcja dodająca brakujące kolumny do tabeli
 function addMissingColumns(callback) {
-
+  // Ta funkcja powinna być zaimplementowana, aby dodawać brakujące kolumny
+  // Na razie po prostu wywołujemy callback
+  if (callback) callback();
 }
 
 // Pobierz SEO dla kategorii
@@ -187,10 +189,36 @@ app.put('/api/seo/categories/:id', authenticateToken, requirePermission('manage_
   );
 });
 
+function getCleanSiteUrl(req) {
+  let host = req.get('host');
+  
+  // Usuń port jeśli jest present
+  host = host.replace(/:\d+$/, '');
+  
+  // Dla localhost używaj http, dla innych https
+  const protocol = host.includes('localhost') || host.includes('127.0.0.1') 
+    ? 'http' 
+    : 'https';
+  
+  return `${protocol}://${host}`;
+}
+
 // RZECZYWISTY audyt SEO
 app.post('/api/seo/audit', authenticateToken, requirePermission('manage_seo'), async (req, res) => {
   try {
-    const { url = req.protocol + '://' + req.get('host') } = req.body;
+    const siteUrl = getCleanSiteUrl(req);
+    const { url = siteUrl } = req.body;
+    
+    console.log('Audit request for URL:', url);
+    console.log('Original site URL:', siteUrl);
+    
+    // Walidacja URL
+    try {
+      new URL(url);
+    } catch (error) {
+      console.error('Invalid URL format:', url);
+      return res.status(400).json({ error: 'Nieprawidłowy format URL' });
+    }
     
     const auditResults = await performRealSeoAudit(url);
     
@@ -223,8 +251,27 @@ async function performRealSeoAudit(url) {
   try {
     const response = await axios.get(url, {
       timeout: 10000,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEO-Audit-Bot/1.0)' }
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'pl,en-US;q=0.7,en;q=0.3',
+        'Connection': 'keep-alive'
+      },
+      validateStatus: function (status) {
+        // Akceptuj również kody błędów, aby móc je przeanalizować
+        return status >= 200 && status < 500;
+      }
     });
+    
+    // Jeśli strona zwróciła błąd, dodaj odpowiedni issue
+    if (response.status >= 400) {
+      issues.push({ 
+        type: 'error', 
+        message: `Strona zwróciła kod błędu: ${response.status} ${response.statusText}`,
+        fix: 'Sprawdź konfigurację serwera i dostępność strony'
+      });
+      return issues;
+    }
     
     const html = response.data;
     const root = parse(html);
@@ -285,7 +332,17 @@ async function performRealSeoAudit(url) {
     }
     
   } catch (error) {
-    issues.push({ type: 'error', message: `Błąd analizy strony: ${error.message}`, fix: 'Sprawdź dostępność strony' });
+    console.error('Błąd analizy strony:', error);
+    
+    if (error.code === 'ECONNREFUSED') {
+      issues.push({ type: 'error', message: 'Połączenie odrzucone - serwer może być niedostępny', fix: 'Sprawdź dostępność strony' });
+    } else if (error.code === 'ENOTFOUND') {
+      issues.push({ type: 'error', message: 'Nie znaleziono hosta - sprawdź poprawność adresu URL', fix: 'Sprawdź poprawność adresu URL' });
+    } else if (error.code === 'ETIMEDOUT') {
+      issues.push({ type: 'error', message: 'Timeout - strona nie odpowiada w wyznaczonym czasie', fix: 'Sprawdź wydajność strony' });
+    } else {
+      issues.push({ type: 'error', message: `Błąd analizy strony: ${error.message}`, fix: 'Sprawdź dostępność strony' });
+    }
   }
   
   return issues;
@@ -684,6 +741,35 @@ app.post('/api/seo/submit-sitemap', authenticateToken, requirePermission('manage
   } catch (error) {
     console.error('Błąd wysyłania sitemap:', error);
     res.status(500).json({ error: 'Błąd podczas wysyłania sitemap do Google: ' + error.message });
+  }
+});
+
+app.get('/api/seo-settings', async (req, res) => {
+  try {
+    const query = `
+      SELECT home_title, home_description, global_keywords 
+      FROM seo_settings 
+      WHERE id = 1
+    `;
+    
+    db.all(query, (err, results) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+    
+      if (results.length === 0) {
+        return res.status(404).json({ 
+          error: 'Ustawienia SEO nie znalezione' 
+        });
+      }
+      res.json(results[0]);
+    });
+
+  } catch (error) {
+    console.error('Błąd pobierania ustawień SEO:', error);
+    res.status(500).json({ 
+      error: 'Wewnętrzny błąd serwera' 
+    });
   }
 });
 
