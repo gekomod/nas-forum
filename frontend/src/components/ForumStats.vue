@@ -31,6 +31,11 @@
         <span class="online-number">{{ onlineData.online_guests || 0 }}</span>
         <span class="online-label">Gości</span>
       </div>
+      <div class="online-item" v-tooltip="`Aktywne boty: ${onlineBotsList}`">
+        <Icon icon="mdi:robot" class="online-icon bot" />
+        <span class="online-number">{{ onlineData.online_bots || 0 }}</span>
+        <span class="online-label">Boty</span>
+      </div>
       <div class="online-item total">
         <Icon icon="mdi:eye" class="online-icon total" />
         <span class="online-number">{{ onlineData.total_online || 0 }}</span>
@@ -65,10 +70,12 @@ export default {
       onlineData: {
         online_users: 0,
         online_guests: 0,
+        online_bots: 0,
         total_online: 0,
-        users: []
+        users: [],
+        bots: []
       },
-      pageUsers: [], // Użytkownicy na aktualnej stronie
+      pageUsers: [],
       refreshInterval: null,
       onlineInterval: null,
       pageUsersInterval: null
@@ -80,6 +87,20 @@ export default {
         return 'Brak zalogowanych użytkowników';
       }
       return this.onlineData.users.map(user => user.username).join(', ');
+    },
+    onlineBotsList() {
+      if (!this.onlineData.bots || this.onlineData.bots.length === 0) {
+        return 'Brak aktywnych botów';
+      }
+      
+      const botTypes = {};
+      this.onlineData.bots.forEach(bot => {
+        botTypes[bot.type] = (botTypes[bot.type] || 0) + 1;
+      });
+      
+      return Object.entries(botTypes)
+        .map(([type, count]) => `${type}: ${count}`)
+        .join(', ');
     },
     pageUsersList() {
       if (this.pageUsers.length === 0) {
@@ -116,7 +137,6 @@ export default {
     
     async loadPageUsers() {
       try {
-        // Endpoint do pobierania użytkowników na aktualnej stronie
         const response = await axios.get('/page-users');
         this.pageUsers = response.data.users || [];
       } catch (error) {
@@ -125,18 +145,17 @@ export default {
     },
     
     startAutoRefresh() {
-      // Odświeżaj co 10 sekund dla lepszej aktualności
       this.refreshInterval = setInterval(() => {
         this.loadStats();
       }, 30000);
       
       this.onlineInterval = setInterval(() => {
         this.loadOnlineUsers();
-      }, 10000); // Co 10 sekund
+      }, 10000);
       
       this.pageUsersInterval = setInterval(() => {
         this.loadPageUsers();
-      }, 15000); // Co 15 sekund
+      }, 15000);
     },
     
     stopAutoRefresh() {
@@ -147,6 +166,7 @@ export default {
   }
 }
 </script>
+
 
 <style scoped>
 .forum-stats {
@@ -159,6 +179,10 @@ export default {
   border: 1px solid var(--card-border);
   margin-bottom: 20px;
   font-size: 13px;
+}
+
+.online-icon.bot {
+  color: var(--el-color-danger);
 }
 
 .stats-left {

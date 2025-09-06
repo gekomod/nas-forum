@@ -1685,9 +1685,57 @@ app.put('/api/thread/:id', authenticateToken, (req, res) => {
 const activeUsers = new Map();
 const activeSessions = new Map();
 const activeGuests = new Map();
+const activeBots = new Map();
+
+// Lista znanych botów wyszukiwarek
+const SEARCH_BOTS = [
+  'googlebot', 'bingbot', 'yandexbot', 'duckduckbot', 'baiduspider',
+  'slurp', 'exabot', 'facebot', 'ia_archiver', 'twitterbot',
+  'linkedinbot', 'applebot', 'petalbot', 'ahrefsbot', 'semrushbot',
+  'mj12bot', 'dotbot', 'moz.com', 'seznambot', 'pinterestbot'
+];
+
+// Funkcja do wykrywania botów
+function isSearchBot(userAgent) {
+  if (!userAgent) return false;
+  
+  const ua = userAgent.toLowerCase();
+  return SEARCH_BOTS.some(bot => ua.includes(bot));
+}
 
 // Middleware do śledzenia aktywności
 app.use((req, res, next) => {
+  const userAgent = req.get('User-Agent');
+  const ip = req.ip;
+  const isBot = isSearchBot(userAgent);
+  
+  if (isBot) {
+    // Śledzenie aktywności botów
+    const botId = ip + userAgent;
+    
+    activeBots.set(botId, {
+      botId: botId,
+      userAgent: userAgent,
+      ip: ip,
+      lastActivity: Date.now(),
+      type: 'bot'
+    });
+    
+    req.isBot = true;
+    
+    // Czyść nieaktywne boty (30 minut bez aktywności)
+    const now = Date.now();
+    const botInactiveTime = 30 * 60 * 1000;
+    
+    for (const [botId, bot] of activeBots.entries()) {
+      if (now - bot.lastActivity > botInactiveTime) {
+        activeBots.delete(botId);
+      }
+    }
+    
+    return next();
+  }
+
   if (req.headers.authorization) {
     const token = req.headers.authorization.split(' ')[1];
     if (token) {
@@ -1741,11 +1789,14 @@ app.use((req, res, next) => {
   
   next();
 });
+
 // Poprawiony endpoint online users
 app.get('/api/online-users', (req, res) => {
   let onlineUsers = 0;
   let onlineGuests = 0;
+  let onlineBots = activeBots.size;
   const usersList = [];
+  const botsList = [];
 
   for (const session of activeSessions.values()) {
     if (session.type === 'user') {
@@ -1759,11 +1810,39 @@ app.get('/api/online-users', (req, res) => {
     }
   }
 
+  // Pobierz listę botów
+  for (const bot of activeBots.values()) {
+    // Określ typ bota na podstawie User-Agent
+    let botType = 'Unknown';
+    const ua = bot.userAgent.toLowerCase();
+    
+    if (ua.includes('googlebot')) botType = 'Google';
+    else if (ua.includes('bingbot')) botType = 'Bing';
+    else if (ua.includes('yandexbot')) botType = 'Yandex';
+    else if (ua.includes('duckduckbot')) botType = 'DuckDuckGo';
+    else if (ua.includes('baiduspider')) botType = 'Baidu';
+    else if (ua.includes('slurp')) botType = 'Yahoo';
+    else if (ua.includes('applebot')) botType = 'Apple';
+    else if (ua.includes('twitterbot')) botType = 'Twitter';
+    else if (ua.includes('facebook')) botType = 'Facebook';
+    else if (ua.includes('linkedinbot')) botType = 'LinkedIn';
+    else if (ua.includes('pinterest')) botType = 'Pinterest';
+    
+    botsList.push({
+      type: botType,
+      userAgent: bot.userAgent,
+      ip: bot.ip,
+      lastActivity: bot.lastActivity
+    });
+  }
+
   res.json({
     online_users: onlineUsers,
     online_guests: onlineGuests,
-    total_online: onlineUsers + onlineGuests,
-    users: usersList
+    online_bots: onlineBots,
+    total_online: onlineUsers + onlineGuests + onlineBots,
+    users: usersList,
+    bots: botsList
   });
 });
 
@@ -1782,6 +1861,48 @@ app.get('/api/page-users', (req, res) => {
   }
   
   res.json({ users: pageUsers });
+});
+
+// Endpoint do pobierania szczegółowych informacji o botach (dla adminów)
+app.get('/api/admin/bot-stats', authenticateToken, requirePermission('view_reports'), (req, res) => {
+  const botStats = {
+    total: activeBots.size,
+    byType: {},
+    detailed: []
+  };
+
+  for (const bot of activeBots.values()) {
+    // Określ typ bota
+    let botType = 'Other';
+    const ua = bot.userAgent.toLowerCase();
+    
+    if (ua.includes('googlebot')) botType = 'Google';
+    else if (ua.includes('bingbot')) botType = 'Bing';
+    else if (ua.includes('yandexbot')) botType = 'Yandex';
+    else if (ua.includes('duckduckbot')) botType = 'DuckDuckGo';
+    else if (ua.includes('baiduspider')) botType = 'Baidu';
+    else if (ua.includes('slurp')) botType = 'Yahoo';
+    else if (ua.includes('applebot')) botType = 'Apple';
+    else if (ua.includes('twitterbot')) botType = 'Twitter';
+    else if (ua.includes('facebook')) botType = 'Facebook';
+    else if (ua.includes('linkedinbot')) botType = 'LinkedIn';
+    else if (ua.includes('pinterest')) botType = 'Pinterest';
+    else if (ua.includes('seo') || ua.includes('crawler') || ua.includes('spider')) botType = 'SEO Tool';
+    
+    // Zliczanie według typu
+    botStats.byType[botType] = (botStats.byType[botType] || 0) + 1;
+    
+    // Szczegółowe informacje
+    botStats.detailed.push({
+      type: botType,
+      userAgent: bot.userAgent,
+      ip: bot.ip,
+      lastActivity: new Date(bot.lastActivity).toISOString(),
+      inactiveFor: Math.floor((Date.now() - bot.lastActivity) / 60000) + ' min'
+    });
+  }
+
+  res.json(botStats);
 });
 
 // Sprawdź czy użytkownik obserwuje wątek

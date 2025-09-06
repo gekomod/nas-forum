@@ -9,6 +9,18 @@ module.exports = function(app, authenticateToken, requirePermission, checkOwners
 let analytics, searchconsole;
 let googleAuthClient = null;
 
+const getBaseUrl = (req) => {
+  const protocol = req.protocol;
+  const host = req.get('host');
+  
+  // Usuń tylko port, zachowując całą resztę hosta
+  const cleanHost = host.replace(/:3000$/, '') // usuń :3000 na końcu
+                       .replace(/:80$/, '')    // usuń :80 na końcu
+                       .replace(/:443$/, '');  // usuń :443 na końcu
+  
+  return `${protocol}://${cleanHost}`;
+};
+
 // Funkcja inicjalizująca autoryzację Google
 const initializeGoogleAuth = async (credentialsJson = null) => {
   try {
@@ -992,6 +1004,7 @@ app.get('/api/seo-settings', async (req, res) => {
   }
 });
 
+// Endpoint do rozpoczynania autoryzacji OAuth
 app.get('/api/seo/oauth-auth', authenticateToken, requirePermission('manage_seo'), (req, res) => {
   db.get('SELECT GOOGLE_APPLICATION_CREDENTIALS FROM seo_settings WHERE id = 1', async (err, row) => {
     if (err) {
@@ -1004,13 +1017,17 @@ app.get('/api/seo/oauth-auth', authenticateToken, requirePermission('manage_seo'
     
     try {
       const credentials = JSON.parse(row.GOOGLE_APPLICATION_CREDENTIALS);
+      const baseUrl = getBaseUrl(req);
+      const redirectUri = `${baseUrl}/api/seo/oauth-callback`;
       
-      // Utwórz klienta OAuth2 bezpośrednio
+      console.log('Using redirect URI:', redirectUri);
+      
+      // Utwórz klienta OAuth2
       const { OAuth2Client } = require('google-auth-library');
       const oauth2Client = new OAuth2Client(
         credentials.web.client_id,
         credentials.web.client_secret,
-        credentials.web.redirect_uris[0]
+        redirectUri
       );
       
       // Generuj URL autoryzacji
@@ -1024,7 +1041,7 @@ app.get('/api/seo/oauth-auth', authenticateToken, requirePermission('manage_seo'
         include_granted_scopes: true
       });
       
-      res.json({ authUrl });
+      res.json({ authUrl, redirectUri });
       
     } catch (error) {
       console.error('Błąd generowania URL autoryzacji:', error);
@@ -1034,9 +1051,8 @@ app.get('/api/seo/oauth-auth', authenticateToken, requirePermission('manage_seo'
 });
 
 // Endpoint do wymiany kodu na token
-// Endpoint do wymiany kodu na token
-app.post('/api/seo/oauth-token', authenticateToken, requirePermission('manage_seo'), async (req, res) => {
-  const { code } = req.body;
+app.post('/api/seo/oauth-token', async (req, res) => {
+  const { code, redirect_uri } = req.body;
   
   if (!code) {
     return res.status(400).json({ error: 'Brak kodu autoryzacji' });
@@ -1055,16 +1071,20 @@ app.post('/api/seo/oauth-token', authenticateToken, requirePermission('manage_se
       try {
         const credentials = JSON.parse(row.GOOGLE_APPLICATION_CREDENTIALS);
         
-        const auth = new GoogleAuth({
-          clientOptions: {
-            clientId: credentials.web.client_id,
-            clientSecret: credentials.web.client_secret,
-            redirectUri: credentials.web.redirect_uris[0]
-          }
-        });
+        // Użyj redirect_uri z żądania lub domyślnej
+        const finalRedirectUri = redirect_uri || `${getBaseUrl(req)}/api/seo/oauth-callback`;
+        console.log('Using redirect URI for token exchange:', finalRedirectUri);
+        
+        // Utwórz klienta OAuth2
+        const { OAuth2Client } = require('google-auth-library');
+        const oauth2Client = new OAuth2Client(
+          credentials.web.client_id,
+          credentials.web.client_secret,
+          finalRedirectUri
+        );
         
         console.log('Wymiana kodu na token...');
-        const { tokens } = await auth.getToken(code);
+        const { tokens } = await oauth2Client.getToken(code);
         console.log('Otrzymane tokens:', tokens);
         
         // Zapisz refresh token w bazie danych
@@ -1077,22 +1097,6 @@ app.post('/api/seo/oauth-token', authenticateToken, requirePermission('manage_se
               return res.status(500).json({ error: 'Błąd zapisu tokena' });
             }
             
-            // Ustaw credentials dla globalnego klienta
-            auth.setCredentials(tokens);
-            googleAuthClient = auth;
-            
-            // Reinicjalizuj analitykę i search console
-            analytics = google.analytics({
-              version: 'v3',
-              auth: googleAuthClient,
-            });
-
-            searchconsole = google.searchconsole({
-              version: 'v1',
-              auth: googleAuthClient,
-            });
-            
-            console.log('Autoryzacja zakończona pomyślnie');
             res.json({ 
               success: true, 
               message: 'Autoryzacja zakończona pomyślnie',
@@ -1103,7 +1107,14 @@ app.post('/api/seo/oauth-token', authenticateToken, requirePermission('manage_se
         
       } catch (error) {
         console.error('Błąd wymiany kodu na token:', error);
-        res.status(400).json({ error: 'Błąd autoryzacji: ' + error.message });
+        
+        if (error.message.includes('redirect_uri')) {
+          res.status(400).json({ 
+            error: `Błąd redirect_uri. Upewnij się, że w Google Cloud Console dodano: ${getBaseUrl(req)}/api/seo/oauth-callback` 
+          });
+        } else {
+          res.status(400).json({ error: 'Błąd autoryzacji: ' + error.message });
+        }
       }
     });
     
@@ -1144,6 +1155,128 @@ app.delete('/api/seo/oauth-revoke', authenticateToken, requirePermission('manage
       res.json({ success: true, message: 'Autoryzacja cofnięta' });
     }
   );
+});
+
+// Endpoint do obsługi callbacka OAuth
+app.get('/api/seo/oauth-callback', async (req, res) => {
+  try {
+    const { code, error, error_description } = req.query;
+    
+    if (error) {
+      return res.send(`
+        <html>
+          <head><title>Błąd autoryzacji</title></head>
+          <body>
+            <h2>Błąd autoryzacji Google</h2>
+            <p><strong>Kod błędu:</strong> ${error}</p>
+            <p><strong>Opis:</strong> ${error_description || 'Brak opisu'}</p>
+            <p>Upewnij się, że redirect URI w Google Cloud Console matches: ${getBaseUrl(req)}/api/seo/oauth-callback</p>
+            <button onclick="window.close()">Zamknij</button>
+          </body>
+        </html>
+      `);
+    }
+    
+    if (!code) {
+      return res.send(`
+        <html>
+          <body>
+            <h2>Brak kodu autoryzacji</h2>
+            <p>Google nie zwróciło kodu autoryzacji.</p>
+            <button onclick="window.close()">Zamknij</button>
+          </body>
+        </html>
+      `);
+    }
+    
+    // Wymień kod na token
+    const baseUrl = getBaseUrl(req);
+    const tokenResponse = await axios.post(`${baseUrl}/api/seo/oauth-token`, {
+      code: code,
+      redirect_uri: `${baseUrl}/api/seo/oauth-callback`
+    });
+    
+    if (tokenResponse.data.success) {
+      res.send(`
+        <html>
+          <head>
+            <title>Autoryzacja zakończona</title>
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+              .success { color: #67c23a; }
+              .button { 
+                background-color: #409EFF; 
+                color: white; 
+                padding: 10px 20px; 
+                border: none; 
+                border-radius: 4px; 
+                cursor: pointer;
+                margin: 10px;
+              }
+            </style>
+          </head>
+          <body>
+            <h2 class="success">✅ Autoryzacja zakończona pomyślnie!</h2>
+            <p>Możesz teraz zamknąć to okno i wrócić do panelu administracyjnego.</p>
+            <button class="button" onclick="window.close()">Zamknij okno</button>
+            <button class="button" onclick="if (window.opener) { window.opener.location.reload(); window.close(); } else { window.location.href = '/admin/seo'; }">Odśwież panel</button>
+          </body>
+        </html>
+      `);
+    } else {
+      res.send(`
+        <html>
+          <body>
+            <h2>Błąd autoryzacji</h2>
+            <p>${tokenResponse.data.error || 'Nieznany błąd'}</p>
+            <button onclick="window.close()">Zamknij</button>
+          </body>
+        </html>
+      `);
+    }
+    
+  } catch (error) {
+    console.error('Błąd callbacka OAuth:', error);
+    res.send(`
+      <html>
+        <body>
+          <h2>Błąd przetwarzania autoryzacji</h2>
+          <p>${error.message}</p>
+          <p>Redirect URI: ${getBaseUrl(req)}/api/seo/oauth-callback</p>
+          <button onclick="window.close()">Zamknij</button>
+        </body>
+      </html>
+    `);
+  }
+});
+
+// Endpoint do weryfikacji redirect URI
+app.get('/api/seo/verify-redirect-uri', authenticateToken, requirePermission('manage_seo'), (req, res) => {
+  db.get('SELECT GOOGLE_APPLICATION_CREDENTIALS FROM seo_settings WHERE id = 1', async (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!row || !row.GOOGLE_APPLICATION_CREDENTIALS) {
+      return res.status(400).json({ error: 'Brak skonfigurowanych credentials' });
+    }
+    
+    try {
+      const credentials = JSON.parse(row.GOOGLE_APPLICATION_CREDENTIALS);
+      const baseUrl = getBaseUrl(req);
+      const redirectUri = `${baseUrl}/api/seo/oauth-callback`;
+      
+      res.json({
+        expectedRedirectUri: redirectUri,
+        registeredRedirectUris: credentials.web.redirect_uris || [],
+        matches: credentials.web.redirect_uris && credentials.web.redirect_uris.includes(redirectUri),
+        baseUrl: baseUrl
+      });
+      
+    } catch (error) {
+      res.status(500).json({ error: 'Błąd weryfikacji redirect URI: ' + error.message });
+    }
+  });
 });
 
 // Pomocnicze funkcje

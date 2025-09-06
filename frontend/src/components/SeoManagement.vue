@@ -44,15 +44,22 @@
                 {{ globalSeoSettings.homeDescription.length }}/160 znaków
               </div>
             </el-form-item>
-            
-            <el-form-item label="GA View ID">
-              <el-input v-model="globalSeoSettings.GA_VIEW_ID" placeholder="np. ga:123456789" />
-              <div class="character-count">
-                {{ globalSeoSettings.GA_VIEW_ID.length }}/200 znaków
-              </div>
-            </el-form-item>
-            
-            <el-form-item label="Google Credentials JSON">
+                        
+                <el-form-item label="GA View ID">
+		  <el-input v-model="globalSeoSettings.GA_VIEW_ID" placeholder="np. ga:123456789" />
+		  <div class="character-count">
+		    {{ globalSeoSettings.GA_VIEW_ID.length }}/200 znaków
+		  </div>
+		  
+		  <!-- Informacja o wymaganym GA View ID -->
+		  <div v-if="!hasGaViewId" class="google-info">
+		    <el-alert type="info" :closable="false" show-icon>
+		      Wprowadź GA View ID aby odblokować funkcje Google Analytics i Search Console
+		    </el-alert>
+		  </div>
+		</el-form-item>
+			    
+            <el-form-item label="Google Credentials JSON" v-if="hasGaViewId">
   <el-input 
     v-model="globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS" 
     type="textarea" 
@@ -90,7 +97,7 @@
   </div>
 </el-form-item>
 
-<el-form-item label="Status autoryzacji Google">
+<el-form-item label="Status autoryzacji Google" v-if="hasGaViewId">
   <div class="oauth-status">
     <el-tag :type="oauthStatus.isAuthenticated ? 'success' : 'warning'">
       <Icon :icon="oauthStatus.isAuthenticated ? 'mdi:check-circle' : 'mdi:alert-circle'" />
@@ -132,6 +139,34 @@
   </div>
 </el-form-item>
            
+<el-form-item label="Weryfikacja redirect URI" v-if="hasGaViewId">
+  <el-button 
+    size="small" 
+    @click="verifyRedirectUri"
+    :loading="verifyingRedirectUri"
+  >
+    Zweryfikuj redirect URI
+  </el-button>
+  
+  <div v-if="redirectUriResult" class="redirect-uri-result">
+    <div v-if="redirectUriResult.matches" style="color: #67c23a;">
+      <Icon icon="mdi:check-circle" /> Redirect URI jest poprawny!
+    </div>
+    <div v-else style="color: #f56c6c;">
+      <Icon icon="mdi:alert-circle" /> Redirect URI nie zgadza się!
+    </div>
+    
+    <div class="uri-details">
+      <p><strong>Oczekiwany URI:</strong><br>{{ redirectUriResult.expectedRedirectUri }}</p>
+      <p><strong>Zarejestrowane URI:</strong></p>
+      <ul>
+        <li v-for="(uri, index) in redirectUriResult.registeredRedirectUris" :key="index">
+          {{ uri }}
+        </li>
+      </ul>
+    </div>
+  </div>
+</el-form-item>
 
             <el-form-item label="Słowa kluczowe">
               <el-tag
@@ -458,6 +493,27 @@
     <!-- Modal z instrukcjami credentials -->
 <el-dialog v-model="showCredentialsHelp" title="Konfiguracja Google API" width="800px">
   <div class="credentials-help-content">
+    <el-alert type="warning" show-icon>
+      Ważne: Musisz dodać redirect URI w Google Cloud Console!
+    </el-alert>
+
+    <h4>Krok po kroku konfiguracji redirect URI:</h4>
+    <ol>
+      <li>Wejdź na <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>
+      <li>Wybierz projekt <strong>nasforum</strong></li>
+      <li>Przejdź do <strong>APIs & Services</strong> > <strong>Credentials</strong></li>
+      <li>Kliknij na swoje OAuth 2.0 Client ID</li>
+      <li>W sekcji <strong>Authorized redirect URIs</strong> dodaj:
+        <pre>{{ currentRedirectUri }}</pre>
+      </li>
+      <li>Kliknij <strong>Save</strong></li>
+      <li>Kliknij <strong>Zweryfikuj redirect URI</strong> w panelu aby potwierdzić</li>
+    </ol>
+    
+    <el-alert type="info" show-icon>
+      Po dodaniu redirect URI, kliknij "Autoryzuj z Google" ponownie.
+    </el-alert>
+  
     <el-alert type="info" show-icon>
       Posiadasz OAuth Client ID credentials. To poprawny format dla aplikacji webowych.
     </el-alert>
@@ -502,6 +558,7 @@
   
   <template #footer>
     <el-button @click="showCredentialsHelp = false">Zamknij</el-button>
+    <el-button @click="verifyRedirectUri" type="primary">Zweryfikuj redirect URI</el-button>
     <el-button 
       type="primary" 
       @click="copyCurrentJson"
@@ -525,6 +582,9 @@ export default {
   components: {
     Icon,
     MetricCard: {
+      components: {
+        Icon
+      },
       template: `
         <div class="metric-card">
           <div class="metric-icon">
@@ -537,7 +597,15 @@ export default {
           </div>
         </div>
       `,
-      props: ['title', 'value', 'trend', 'icon'],
+        props: {
+    title: String,
+    value: [String, Number],
+    trend: String,
+    icon: {
+      type: String,
+      default: 'mdi:chart-line' // Domyślna ikona
+    }
+  },
       computed: {
         trendClass() {
           return this.trend.startsWith('+') ? 'positive' : 'negative'
@@ -635,6 +703,8 @@ export default {
     const startingOAuth = ref(false)
     const completingOAuth = ref(false)
     const revokingOAuth = ref(false)
+    const verifyingRedirectUri = ref(false)
+    const redirectUriResult = ref(null)
     
     // Stany ładowania
     const auditLoading = ref(false)
@@ -708,6 +778,10 @@ const copySampleJson = () => {
   showCredentialsHelp.value = false
 }
 
+const hasGaViewId = computed(() => {
+  return globalSeoSettings.GA_VIEW_ID && globalSeoSettings.GA_VIEW_ID.trim().length > 0;
+});
+
 const copyCurrentJson = () => {
   if (globalSeoSettings.google_credentials_json) {
     copyToClipboard(globalSeoSettings.google_credentials_json)
@@ -756,12 +830,22 @@ const copyCurrentJson = () => {
     }
 
     // Pobierz ustawienia SEO przy załadowaniu komponentu
-    onMounted(async () => {
-      await loadSeoSettings()
-      await loadSeoCategories()
-      await checkOAuthStatus()
-      await loadSeoMetrics()
-    })
+onMounted(async () => {
+  await loadSeoSettings()
+  await loadSeoCategories()
+  await checkOAuthStatus()
+  
+  // Sprawdź czy wróciliśmy z autoryzacji OAuth
+  const oauthCompleted = localStorage.getItem('oauth_completed')
+  if (oauthCompleted === 'true') {
+    ElMessage.success('Autoryzacja Google zakończona pomyślnie!')
+    localStorage.removeItem('oauth_completed')
+    await checkOAuthStatus()
+    await loadSeoMetrics()
+  } else {
+    await loadSeoMetrics()
+  }
+})
 
     const loadSeoSettings = async () => {
       try {
@@ -789,6 +873,34 @@ const copyCurrentJson = () => {
         ElMessage.error('Nie udało się załadować ustawień SEO')
       }
     }
+    
+    const verifyRedirectUri = async () => {
+  try {
+    verifyingRedirectUri.value = true
+    redirectUriResult.value = null
+    
+    const token = localStorage.getItem('token')
+    const response = await axios.get('/seo/verify-redirect-uri', {
+      headers: { 
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    redirectUriResult.value = response.data
+    
+    if (response.data.matches) {
+      ElMessage.success('Redirect URI jest poprawny!')
+    } else {
+      ElMessage.warning('Redirect URI nie zgadza się. Zaktualizuj Google Cloud Console.')
+    }
+  } catch (error) {
+    console.error('Błąd weryfikacji redirect URI:', error)
+    ElMessage.error('Błąd weryfikacji redirect URI')
+  } finally {
+    verifyingRedirectUri.value = false
+  }
+}
 
     const loadSeoCategories = async () => {
       try {
@@ -833,6 +945,11 @@ const copyCurrentJson = () => {
 
 const loadSeoMetrics = async () => {
   try {
+  if (!hasGaViewId.value) {
+    setSampleMetrics();
+    return;
+  }
+  
     const token = localStorage.getItem('token')
     const response = await axios.get('/seo/metrics', {
       headers: { 
@@ -870,7 +987,8 @@ const loadSeoMetrics = async () => {
     
   } catch (error) {
     console.error('Błąd ładowania metryk SEO:', error)
-    
+    // W przypadku błędu, użyj danych przykładowych
+    setSampleMetrics();
     // Specjalna obsługa błędu autoryzacji
     if (error.response?.data?.requiresReauth) {
       oauthStatus.isAuthenticated = false
@@ -930,11 +1048,6 @@ const startOAuthFlow = async () => {
   try {
     startingOAuth.value = true
     
-    // Najpierw zapisz ustawienia jeśli są zmiany
-    if (hasUnsavedChanges()) {
-      await saveGlobalSeoSettings()
-    }
-    
     const token = localStorage.getItem('token')
     const response = await axios.get('/seo/oauth-auth', {
       headers: { 
@@ -943,36 +1056,28 @@ const startOAuthFlow = async () => {
       }
     })
     
-    // Otwórz okno autoryzacji
+    // Otwórz w nowym oknie
     const authWindow = window.open(
       response.data.authUrl, 
-      'google_oauth', 
-      'width=600,height=700,scrollbars=yes,resizable=yes'
+      'google_oauth',
+      'width=600,height=700'
     )
     
-    if (!authWindow) {
-      throw new Error('Nie udało się otworzyć okna autoryzacji. Sprawdź blokadę wyskakujących okien.')
-    }
-    
-    // Sprawdzaj co 500ms czy okno zostało zamknięte
+    // Sprawdzaj co sekundę czy okno zostało zamknięte
     const checkInterval = setInterval(() => {
       if (authWindow.closed) {
         clearInterval(checkInterval)
-        checkOAuthStatus() // Sprawdź status po zamknięciu okna
-        ElMessage.info('Okno autoryzacji zamknięte. Sprawdzam status...')
+        setTimeout(() => {
+          checkOAuthStatus()
+          loadSeoMetrics()
+          ElMessage.info('Sprawdzam status autoryzacji...')
+        }, 2000) // Daj chwilę czasu na przetworzenie
       }
-    }, 500)
+    }, 1000)
     
   } catch (error) {
-    console.error('Błąd rozpoczynania OAuth:', error)
-    
-    if (error.response?.data?.error) {
-      ElMessage.error(error.response.data.error)
-    } else if (error.message.includes('blokadę')) {
-      ElMessage.error('Blokada wyskakujących okien jest aktywna. Zezwól na wyskakujące okna dla tej strony.')
-    } else {
-      ElMessage.error('Błąd podczas rozpoczynania autoryzacji: ' + error.message)
-    }
+    console.error('Błąd OAuth:', error)
+    ElMessage.error('Błąd autoryzacji: ' + (error.response?.data?.error || error.message))
   } finally {
     startingOAuth.value = false
   }
@@ -1051,6 +1156,10 @@ const hasUnsavedChanges = () => {
         savingSettings.value = false
       }
     }
+    
+    const currentRedirectUri = computed(() => {
+  return `${window.location.origin}/api/seo/oauth-callback`;
+});
 
 const verifyGoogleCredentials = async () => {
   if (!globalSeoSettings.GOOGLE_APPLICATION_CREDENTIALS) {
@@ -1350,6 +1459,55 @@ const verifyGoogleCredentials = async () => {
         { keyword: 'społeczność', position: 15, traffic: 2100 }
       ]
     }
+    
+    // Pomocnicze funkcje
+	const setSampleMetrics = () => {
+	  seoMetrics.positions = 0;
+	  seoMetrics.organicTraffic = '0';
+	  seoMetrics.ctr = 0;
+	  seoMetrics.backlinks = 0;
+	  seoMetrics.totalSessions = '0';
+	  seoMetrics.totalPageviews = '0';
+	  seoMetrics.totalUsers = '0';
+	  seoMetrics.avgTimeOnPage = '0.0';
+	  seoMetrics.bounceRate = '0.0';
+	  seoMetrics.newUsers = '0';
+	  
+	  seoMetrics.positionsTrend = '+0';
+	  seoMetrics.trafficTrend = '+0%';
+	  seoMetrics.ctrTrend = '+0%';
+	  seoMetrics.backlinksTrend = '+0';
+	  
+	  trafficData.value = generateSampleTrafficData();
+	  keywordData.value = generateSampleKeywordData();
+	}
+
+	const updateMetricsFromResponse = (metrics) => {
+	  seoMetrics.positions = metrics.positions || 0;
+	  seoMetrics.organicTraffic = metrics.organicTraffic || '0';
+	  seoMetrics.ctr = metrics.ctr || 0;
+	  seoMetrics.backlinks = metrics.backlinks || 0;
+	  seoMetrics.totalSessions = metrics.totalSessions || '0';
+	  seoMetrics.totalPageviews = metrics.totalPageviews || '0';
+	  seoMetrics.totalUsers = metrics.totalUsers || '0';
+	  seoMetrics.avgTimeOnPage = metrics.avgTimeOnPage || '0.0';
+	  seoMetrics.bounceRate = metrics.bounceRate || '0.0';
+	  seoMetrics.newUsers = metrics.newUsers || '0';
+	  
+	  updateTrends(metrics);
+	  
+	  if (metrics.trafficData) {
+	    trafficData.value = metrics.trafficData;
+	  } else {
+	    trafficData.value = generateSampleTrafficData();
+	  }
+	  
+	  if (metrics.keywordData) {
+	    keywordData.value = metrics.keywordData;
+	  } else {
+	    keywordData.value = generateSampleKeywordData();
+	  }
+	}
 
     return {
       activeTab,
@@ -1397,12 +1555,18 @@ const verifyGoogleCredentials = async () => {
       saveGlobalSeoSettings,
       verifyGoogleCredentials,
       hasChanges,
-        oauthStatus,
-  startingOAuth,
-  completingOAuth,
-  revokingOAuth,
-    checkOAuthStatus,
-  startOAuthFlow,
+      redirectUriResult,
+      verifyingRedirectUri,
+      verifyRedirectUri,
+      oauthStatus,
+      startingOAuth,
+      completingOAuth,
+      revokingOAuth,
+      checkOAuthStatus,
+      startOAuthFlow,
+      currentRedirectUri,
+      copyCurrentJson,
+      hasGaViewId,
       exportAuditReport
     }
   }
@@ -1423,6 +1587,14 @@ const verifyGoogleCredentials = async () => {
 .card-header h3 {
   margin: 0;
   flex: 1;
+}
+
+.google-info {
+  margin-top: 8px;
+}
+
+.google-info .el-alert {
+  padding: 8px 16px;
 }
 
 .google-preview {
@@ -1735,6 +1907,36 @@ const verifyGoogleCredentials = async () => {
 
 .oauth-help .el-icon {
   margin-right: 4px;
+}
+
+.redirect-uri-result {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.uri-details {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.uri-details p {
+  margin: 8px 0;
+}
+
+.uri-details ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.uri-details pre {
+  background: #eef0f3;
+  padding: 8px;
+  border-radius: 3px;
+  overflow-x: auto;
+  margin: 4px 0;
 }
 
 .count.error { color: #f56c6c; }
