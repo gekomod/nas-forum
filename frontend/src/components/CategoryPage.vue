@@ -1,7 +1,7 @@
 <template>
   <div class="category-container">
     <div class="breadcrumbs">
-      <a href="#" class="breadcrumb-link" @click.prevent="$emit('back-to-categories')">
+      <a href="/" class="breadcrumb-link" @click.prevent="goHome">
         <Icon icon="mdi:home" />
         Forum
       </a>
@@ -380,6 +380,10 @@ export default {
     }
   },
   methods: {
+    goHome() {
+      window.history.pushState({}, '', '/');
+      this.$emit('back-to-categories');
+    },
     Pagination() {
       this.totalthreads = this.threads.length;
     },
@@ -393,23 +397,29 @@ export default {
     handlePageChange(page) {
       this.currentPage = page;
     },
-selectThread(thread) {
-  // Zapisz czas ostatniej wizyty w kategorii
-  this.markCategoryVisited(this.category.id);
-  
-  if (!thread) {
-    console.error('CategoryPage - BŁĄD: thread jest undefined/null');
-    return;
-  }
-  
-  try {
-    this.$emit('select-thread', thread);
-    // Powiadom komponent CategoriesList o zmianie
-    this.$emit('category-visited', this.category.id);
-  } catch (error) {
-    console.error('CategoryPage - BŁĄD podczas emitowania:', error);
-  }
-},
+  selectThread(thread) {
+    // Zapisz czas ostatniej wizyty w kategorii
+    this.markCategoryVisited(this.category.id);
+    
+    if (!thread) {
+      console.error('CategoryPage - BŁĄD: thread jest undefined/null');
+      return;
+    }
+    
+    try {
+      // Zamiast emitować event, zmień URL i powiadom App.vue
+      const slug = this.generateSlug(thread.title);
+      window.history.pushState({}, '', `/thread/${thread.id}/${slug}`);
+      
+      // Powiadom komponent nadrzędny o zmianie wątku
+      this.$emit('select-thread', thread);
+      
+      // Powiadom komponent CategoriesList o zmianie
+      this.$emit('category-visited', this.category.id);
+    } catch (error) {
+      console.error('CategoryPage - BŁĄD podczas emitowania:', error);
+    }
+  },
 	async markCategoryVisited(categoryId) {
 	  if (this.user) {
 	    // Dla zalogowanych użytkowników - zapisz w bazie danych
@@ -430,6 +440,16 @@ selectThread(thread) {
 	    window.parent.updateCategoryStatuses();
 	  }
 	},
+  generateSlug(text) {
+    return text
+      .toString()
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^\w\-]+/g, '')
+      .replace(/\-\-+/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '');
+  },
     confirmDeleteThread(threadId, isModerator = false) {
       const message = isModerator 
         ? 'Czy na pewno chcesz usunąć ten wątek? WSZYSTKIE ODPOWIEDZI ZOSTANĄ USUNIĘTE!'
@@ -534,6 +554,7 @@ selectThread(thread) {
     }
   },
   mounted() {
+    //document.title = "TEST";
     this.Pagination();
   }
 }

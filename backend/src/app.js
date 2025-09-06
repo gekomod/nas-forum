@@ -11,6 +11,7 @@ const { authenticateToken, requirePermission, checkOwnership, addUserPermissions
 const BackupRoutes = require('./backup.js');
 const PermissionRoutes = require('./permission.js');
 const SeoRoutes = require('./seo.js');
+const ForumRoutes = require('./forum.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -995,38 +996,6 @@ app.get('/api/admin/categories/:id', authenticateToken, requirePermission('manag
     }
     
     res.json(category);
-  });
-});
-
-// Zarządzanie kategoriami - tworzenie
-app.post('/api/admin/categories', authenticateToken, requirePermission('manage_categories'), (req, res) => {
-  const { name, icon, description, is_locked = false, required_role = 0, position } = req.body;
-
-  // Konwertuj 0 na null dla bazy danych
-  const dbRequiredRole = required_role === 0 ? null : required_role;
-
-  // Znajdź najwyższą pozycję
-  db.get('SELECT MAX(position) as max_position FROM categories', (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    
-    const newPosition = position !== undefined ? position : (row.max_position || 0) + 1;
-    
-    db.run(
-      'INSERT INTO categories (name, icon, description, is_locked, required_role, position) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, icon, description, is_locked, dbRequiredRole, newPosition],
-      function(err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        
-        res.status(201).json({ 
-          message: 'Kategoria została utworzona',
-          id: this.lastID 
-        });
-      }
-    );
   });
 });
 
@@ -3995,6 +3964,7 @@ async function unlockAchievement(userId, achievementId) {
 BackupRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
 PermissionRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
 SeoRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
+ForumRoutes(app,authenticateToken, requirePermission, checkOwnership, JWT_SECRET, db);
 
 // Funkcja sprawdzająca wymagania osiągnięcia
 async function checkAchievementRequirements(userId, achievement, requirements, currentActivityType) {

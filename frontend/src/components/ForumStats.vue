@@ -1,53 +1,92 @@
 <template>
-  <div class="forum-stats">
-    <div class="stats-left">
-      <span class="stat-item">
-        <Icon icon="mdi:forum-outline" class="stat-icon" />
-        <span class="stat-number">{{ stats.threads || 0 }}</span>
-        <span class="stat-label">Tematów</span>
-      </span>
-      <span class="stat-separator">|</span>
-      <span class="stat-item">
-        <Icon icon="mdi:message-text-outline" class="stat-icon" />
-        <span class="stat-number">{{ stats.posts || 0 }}</span>
-        <span class="stat-label">Odpowiedzi</span>
-      </span>
-      <span class="stat-separator">|</span>
-      <span class="stat-item">
-        <Icon icon="mdi:account-group-outline" class="stat-icon" />
-        <span class="stat-number">{{ stats.users || 0 }}</span>
-        <span class="stat-label">Użytkowników</span>
-      </span>
+  <div class="forum-stats-simple">
+    <!-- Główny pasek statystyk -->
+    <div class="stats-bar">
+      <!-- Statystyki forum -->
+      <div class="stat-group">
+        <div class="stat-item">
+          <Icon icon="mdi:forum" class="stat-icon" />
+          <span class="stat-value">{{ stats.threads || 0 }}</span>
+          <span class="stat-label">Tematy</span>
+        </div>
+        
+        <div class="stat-item">
+          <Icon icon="mdi:message-text" class="stat-icon" />
+          <span class="stat-value">{{ stats.posts || 0 }}</span>
+          <span class="stat-label">Posty</span>
+        </div>
+        
+        <div class="stat-item">
+          <Icon icon="mdi:account-multiple" class="stat-icon" />
+          <span class="stat-value">{{ stats.users || 0 }}</span>
+          <span class="stat-label">Użytkownicy</span>
+        </div>
+      </div>
+
+      <!-- Separator -->
+      <div class="separator"></div>
+
+      <!-- Użytkownicy online -->
+      <div class="stat-group">
+        <div class="stat-item" v-tooltip="`Zalogowani: ${onlineUsersList}`">
+          <Icon icon="mdi:account" class="stat-icon user" />
+          <span class="stat-value">{{ onlineData.online_users || 0 }}</span>
+          <span class="stat-label">Użytk.</span>
+        </div>
+        
+        <div class="stat-item">
+          <Icon icon="mdi:account-outline" class="stat-icon guest" />
+          <span class="stat-value">{{ onlineData.online_guests || 0 }}</span>
+          <span class="stat-label">Goście</span>
+        </div>
+        
+        <div class="stat-item" v-tooltip="`Boty: ${onlineBotsList}`">
+          <Icon icon="mdi:robot" class="stat-icon bot" />
+          <span class="stat-value">{{ onlineData.online_bots || 0 }}</span>
+          <span class="stat-label">Boty</span>
+        </div>
+        
+        <div class="stat-item total">
+          <Icon icon="mdi:eye" class="stat-icon total" />
+          <span class="stat-value">{{ onlineData.total_online || 0 }}</span>
+          <span class="stat-label">Online</span>
+        </div>
+      </div>
+
+      <!-- Separator -->
+      <div class="separator"></div>
+
+      <!-- Na stronie -->
+      <div class="stat-group">
+        <div class="stat-item page-users">
+          <Icon icon="mdi:earth" class="stat-icon" />
+          <span class="stat-value">{{ pageUsers.length }}</span>
+          <span class="stat-label">Na stronie</span>
+          <div class="users-preview" v-if="pageUsers.length > 0">
+            <span 
+              v-for="user in pageUsers.slice(0, 3)" 
+              :key="user.id"
+              class="user-badge"
+              v-tooltip="user.username"
+            >
+              {{ getInitial(user.username) }}
+            </span>
+            <span 
+              v-if="pageUsers.length > 3" 
+              class="user-badge more"
+              v-tooltip="`+${pageUsers.length - 3} więcej`"
+            >
+              +{{ pageUsers.length - 3 }}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="stats-right">
-      <div class="online-item" v-tooltip="`Zalogowani użytkownicy: ${onlineUsersList}`">
-        <Icon icon="mdi:account" class="online-icon user" />
-        <span class="online-number">{{ onlineData.online_users || 0 }}</span>
-        <span class="online-label">Użytk.</span>
-      </div>
-      <div class="online-item">
-        <Icon icon="mdi:account-outline" class="online-icon guest" />
-        <span class="online-number">{{ onlineData.online_guests || 0 }}</span>
-        <span class="online-label">Gości</span>
-      </div>
-      <div class="online-item" v-tooltip="`Aktywne boty: ${onlineBotsList}`">
-        <Icon icon="mdi:robot" class="online-icon bot" />
-        <span class="online-number">{{ onlineData.online_bots || 0 }}</span>
-        <span class="online-label">Boty</span>
-      </div>
-      <div class="online-item total">
-        <Icon icon="mdi:eye" class="online-icon total" />
-        <span class="online-number">{{ onlineData.total_online || 0 }}</span>
-        <span class="online-label">Online</span>
-      </div>
-      
-      <!-- Dodane: Użytkownicy na tej stronie -->
-      <div class="online-item" v-tooltip="`Użytkownicy przeglądający tę stronę: ${pageUsersList}`">
-        <Icon icon="mdi:earth" class="online-icon page" />
-        <span class="online-number">{{ pageUsers.length }}</span>
-        <span class="online-label">Na stronie</span>
-      </div>
+    <!-- Status online -->
+    <div class="status-indicator">
+      <Icon icon="mdi:circle" class="status-dot" />
+      <span class="status-text">Online</span>
     </div>
   </div>
 </template>
@@ -57,7 +96,7 @@ import { Icon } from "@iconify/vue";
 import axios from "axios";
 
 export default {
-  name: 'ForumStats',
+  name: 'ForumStatsSimple',
   components: { Icon },
   props: {
     stats: {
@@ -101,23 +140,21 @@ export default {
       return Object.entries(botTypes)
         .map(([type, count]) => `${type}: ${count}`)
         .join(', ');
-    },
-    pageUsersList() {
-      if (this.pageUsers.length === 0) {
-        return 'Brak użytkowników na tej stronie';
-      }
-      return this.pageUsers.map(user => user.username).join(', ');
     }
   },
   mounted() {
-    this.startAutoRefresh();
     this.loadOnlineUsers();
     this.loadPageUsers();
+    this.startAutoRefresh();
   },
   beforeUnmount() {
     this.stopAutoRefresh();
   },
   methods: {
+    getInitial(username) {
+      return username ? username.charAt(0).toUpperCase() : '?';
+    },
+    
     async loadStats() {
       try {
         await this.$emit('refresh-stats');
@@ -145,21 +182,16 @@ export default {
     },
     
     startAutoRefresh() {
-      this.refreshInterval = setInterval(() => {
-        this.loadStats();
-      }, 30000);
-      
       this.onlineInterval = setInterval(() => {
         this.loadOnlineUsers();
-      }, 10000);
+      }, 15000);
       
       this.pageUsersInterval = setInterval(() => {
         this.loadPageUsers();
-      }, 15000);
+      }, 20000);
     },
     
     stopAutoRefresh() {
-      if (this.refreshInterval) clearInterval(this.refreshInterval);
       if (this.onlineInterval) clearInterval(this.onlineInterval);
       if (this.pageUsersInterval) clearInterval(this.pageUsersInterval);
     }
@@ -167,196 +199,184 @@ export default {
 }
 </script>
 
-
 <style scoped>
-.forum-stats {
+.forum-stats-simple {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.stats-bar {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  background: var(--card-bg);
-  border-radius: 8px;
-  padding: 12px 20px;
-  border: 1px solid var(--card-border);
-  margin-bottom: 20px;
-  font-size: 13px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
-.online-icon.bot {
-  color: var(--el-color-danger);
-}
-
-.stats-left {
+.stat-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
 .stat-item {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.stat-icon {
-  font-size: 16px;
-  color: var(--el-color-primary);
-  opacity: 0.8;
-}
-
-.stat-number {
-  font-weight: bold;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.stat-label {
-  color: var(--text-secondary);
-}
-
-.stat-separator {
-  color: var(--el-border-color);
-  margin: 0 4px;
-  opacity: 0.6;
-}
-
-.stats-right {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-
-.online-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  min-width: 45px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
   transition: background-color 0.2s ease;
 }
 
-.online-item:hover {
+.stat-item:hover {
   background: var(--el-fill-color-light);
 }
 
-.online-icon {
-  font-size: 18px;
-  margin-bottom: 2px;
+.stat-item.total {
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-5);
 }
 
-.online-icon.user {
+.stat-icon {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.stat-icon.user { color: var(--el-color-success); }
+.stat-icon.guest { color: var(--el-color-info); }
+.stat-icon.bot { color: var(--el-color-warning); }
+.stat-icon.total { color: var(--el-color-primary); }
+
+.stat-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.separator {
+  width: 1px;
+  height: 24px;
+  background: var(--border-color-light);
+}
+
+/* Użytkownicy na stronie */
+.page-users {
+  position: relative;
+}
+
+.users-preview {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.user-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--el-color-primary);
+  color: white;
+  font-size: 9px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--bg-secondary);
+}
+
+.user-badge.more {
+  background: var(--el-color-info);
+  font-size: 8px;
+}
+
+/* Status indicator */
+.status-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-dot {
+  font-size: 8px;
   color: var(--el-color-success);
 }
 
-.online-icon.guest {
-  color: var(--el-color-info);
-}
-
-.online-icon.total {
-  color: var(--el-color-primary);
-}
-
-.online-icon.page {
-  color: var(--el-color-warning);
-}
-
-.online-number {
-  font-weight: bold;
-  color: var(--text-primary);
-  font-size: 15px;
-  line-height: 1;
-}
-
-.online-label {
+.status-text {
+  font-size: 10px;
   color: var(--text-secondary);
-  font-size: 11px;
-  text-transform: uppercase;
-  font-weight: 500;
-}
-
-.online-item.total .online-number {
-  color: var(--el-color-primary);
-}
-
-.online-item.total .online-label {
-  color: var(--el-color-primary);
-  font-weight: 600;
 }
 
 /* Responsywność */
-@media (max-width: 768px) {
-  .forum-stats {
-    flex-direction: column;
+@media (max-width: 1024px) {
+  .stats-bar {
+    justify-content: center;
     gap: 12px;
-    text-align: center;
   }
   
-  .stats-left {
-    order: 2;
-    flex-wrap: wrap;
-    justify-content: center;
+  .stat-group {
+    gap: 12px;
+  }
+}
+
+@media (max-width: 768px) {
+  .forum-stats-simple {
+    padding: 10px;
+  }
+  
+  .stats-bar {
+    flex-direction: column;
     gap: 8px;
   }
   
-  .stats-right {
-    order: 1;
-    border-bottom: 1px solid var(--el-border-color-light);
-    padding-bottom: 12px;
-    width: 100%;
+  .stat-group {
     justify-content: center;
-    gap: 15px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .separator {
+    display: none;
+  }
+  
+  .page-users {
+    margin-top: 4px;
   }
 }
 
 @media (max-width: 480px) {
-  .forum-stats {
-    padding: 10px 12px;
-  }
-  
-  .stats-left {
-    gap: 6px;
-  }
-  
   .stat-item {
-    gap: 4px;
+    padding: 3px 6px;
   }
   
-  .stat-icon {
-    font-size: 14px;
-  }
-  
-  .stat-number {
-    font-size: 13px;
-  }
-  
-  .stat-label {
+  .stat-value {
     font-size: 12px;
   }
   
-  .stat-separator {
-    margin: 0 2px;
-  }
-  
-  .stats-right {
-    gap: 12px;
-  }
-  
-  .online-item {
-    min-width: 40px;
-    padding: 4px 6px;
-  }
-  
-  .online-icon {
-    font-size: 16px;
-  }
-  
-  .online-number {
-    font-size: 14px;
-  }
-  
-  .online-label {
+  .stat-label {
     font-size: 10px;
+  }
+  
+  .users-preview {
+    display: none;
+  }
+  
+  .status-indicator {
+    position: static;
+    justify-content: center;
+    margin-top: 8px;
   }
 }
 </style>

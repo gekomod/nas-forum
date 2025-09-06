@@ -28,7 +28,7 @@
           @select="handleMenuSelect"
           class="nav-menu"
         >
-          <el-menu-item index="categories">
+          <el-menu-item index="categories" @click="forceGoToHome">
             <Icon icon="mdi:view-grid" />
             Kategorie
           </el-menu-item>
@@ -80,7 +80,7 @@
           :category="selectedCategory"
           :threads="categoryThreads"
           :user="currentUser"
-          @back-to-categories="currentView = 'categories'"
+          @back-to-categories="goToHome"
           @create-thread="showCreateThreadDialog = true"
           @select-thread="handleSelectThread"
           @delete-thread="handleDeleteThread"
@@ -93,7 +93,7 @@
           :thread-data="selectedThread"
           :category="selectedCategory"
           :user="currentUser"
-          @back-to-category="currentView = 'category'"
+          @back-to-category="goToCategory"
           @category-visited="handleCategoryVisited"
         />
 
@@ -292,23 +292,65 @@ export default {
         document.documentElement.classList.remove('dark')
       }
     },
-    selectCategory(category) {
-      this.selectedCategory = category
-      this.currentView = 'category'
-      this.loadCategoryThreads(category.id)
-    },
-    handleMenuSelect(index) {
+  // Modyfikacja metody selectCategory
+  selectCategory(category) {
+    this.selectedCategory = category;
+    this.currentView = 'category';
+    this.loadCategoryThreads(category.id);
+    
+    // Zaktualizuj URL
+    window.history.pushState({}, '', `/category/${category.slug}`);
+  },
+  handleMenuSelect(index) {
+    if (index === 'categories') {
+      this.forceGoToHome();
+    } else {
       this.currentView = index;
-    },
-    selectThread(thread) {
-      if (!thread || !thread.id) {
-        console.error('App.vue - BŁĄD: Brak ID wątku!', thread);
-        this.$message.error('Błąd: Nieprawidłowy wątek');
-        return;
-      }
-      this.selectedThread = thread;
-      this.currentView = 'thread';
-    },
+    }
+  },
+  forceGoToHome() {
+    // Tylko jeśli NIE jesteśmy już na stronie głównej, zmieniaj URL
+    if (this.currentView !== 'categories' || window.location.pathname !== '/') {
+      this.currentView = 'categories';
+      this.selectedCategory = null;
+      this.selectedThread = null;
+      window.history.pushState({}, '', '/');
+    }
+    
+    // Zawsze odświeżaj dane gdy klikamy "Kategorie"
+    this.loadCategories();
+    this.loadActiveThreads();
+  },
+  goToHome() {
+    this.currentView = 'categories';
+    this.selectedCategory = null;
+    this.selectedThread = null;
+    window.history.pushState({}, '', '/');
+  },
+  selectThread(thread) {
+    // Zapisz czas ostatniej wizyty w kategorii
+    this.markCategoryVisited(this.category.id);
+    
+    if (!thread) {
+      console.error('CategoryPage - BŁĄD: thread jest undefined/null');
+      return;
+    }
+    
+    try {
+      // Zamiast emitować event, zmień URL
+      const slug = this.generateSlug(thread.title);
+      window.history.pushState({ threadId: thread.id }, '', `/thread/${thread.id}/${slug}`);
+      
+      // Powiadom komponent nadrzędny o zmianie wątku
+      this.$emit('select-thread', thread);
+      
+      // Powiadom komponent CategoriesList o zmianie
+      this.$emit('category-visited', this.category.id);
+    } catch (error) {
+      console.error('CategoryPage - BŁĄD podczas emitowania:', error);
+    }
+  },
+  
     handleCreateThread(threadData) {
       this.createNewThread(threadData);
     },
@@ -405,16 +447,119 @@ async loadStats() {
       this.showAuthModalVisible = true;
     },
     
-    handleUrl() {
-      const path = window.location.pathname;
-      if (path.startsWith('/profile/')) {
-        const userId = path.split('/')[2];
-        if (userId) {
-          this.selectedUserId = parseInt(userId);
-          this.currentView = 'user-profile';
-        }
+  handleUrl() {
+    const path = window.location.pathname;
+    
+    // Obsługa strony głównej
+    if (path === '/' || path === '') {
+      this.currentView = 'categories';
+      this.selectedCategory = null;
+      this.selectedThread = null;
+      return;
+    }
+    
+    // Obsługa ścieżki kategorii: /category/nazwa-kategorii
+    if (path.startsWith('/category/')) {
+      const slug = path.split('/')[2];
+      this.loadCategoryBySlug(slug);
+    } 
+    // Obsługa ścieżki wątku: /thread/id/nazwa-watku
+    else if (path.startsWith('/thread/')) {
+      const parts = path.split('/');
+      const threadId = parseInt(parts[2]);
+      
+      if (!isNaN(threadId)) {
+        this.loadThreadById(threadId);
+      } else {
+        console.error('Invalid thread ID:', parts[2]);
+        this.currentView = 'categories';
       }
-    },
+    }
+    // Obsługa profilu użytkownika
+    else if (path.startsWith('/profile/')) {
+      const userId = path.split('/')[2];
+      if (userId) {
+        this.selectedUserId = parseInt(userId);
+        this.currentView = 'user-profile';
+      }
+    }
+    // Dla nieznanych ścieżek - przekieruj na stronę główną
+    else {
+      this.currentView = 'categories';
+      window.history.replaceState({}, '', '/');
+    }
+  },
+  
+  setupNavigation() {
+    window.addEventListener('popstate', (event) => {
+      // Zapobiegaj domyślnemu zachowaniu
+      event.preventDefault();
+      
+      // Obsłuż zmianę URL
+      this.handleUrl();
+    });
+  },
+  
+  goToCategory() {
+    if (this.selectedCategory) {
+      const slug = this.generateSlug(this.selectedCategory.name);
+      window.history.pushState({}, '', `/category/${slug}`);
+      this.currentView = 'category';
+    } else {
+      this.goToHome();
+    }
+  },
+  
+  async loadThreadById(threadId) {
+    try {
+      // Najpierw pobierz dane wątku
+      const threadResponse = await axios.get(`/thread/${threadId}`);
+      this.selectedThread = threadResponse.data.thread;
+      
+      // Następnie pobierz kategorię dla breadcrumbs
+      try {
+        const categoryResponse = await axios.get(`/category/id/${this.selectedThread.category_id}`);
+        this.selectedCategory = categoryResponse.data;
+      } catch (categoryError) {
+        console.error('Error loading category:', categoryError);
+        // Utwórz tymczasowy obiekt kategorii jeśli nie uda się pobrać
+        this.selectedCategory = {
+          id: this.selectedThread.category_id,
+          name: 'Unknown Category',
+          slug: 'unknown'
+        };
+      }
+      
+      this.currentView = 'thread';
+      
+      // Zaktualizuj URL w przeglądarce z poprawnym slugiem
+      const slug = this.generateSlug(this.selectedThread.title);
+      window.history.replaceState({}, '', `/thread/${threadId}/${slug}`);
+      
+    } catch (error) {
+      console.error('Error loading thread by ID:', error);
+      this.$message.error('Wątek nie istnieje');
+      this.currentView = 'categories';
+      window.history.replaceState({}, '', '/');
+    }
+  },
+  
+  async loadCategoryBySlug(slug) {
+    try {
+      const response = await axios.get(`/category/${slug}`);
+      this.selectedCategory = response.data;
+      this.currentView = 'category';
+      this.loadCategoryThreads(this.selectedCategory.id);
+      
+      // Zaktualizuj URL w przeglądarce
+      window.history.replaceState({}, '', `/category/${slug}`);
+    } catch (error) {
+      console.error('Error loading category by slug:', error);
+      this.$message.error('Kategoria nie istnieje');
+      this.currentView = 'categories';
+      window.history.replaceState({}, '', '/');
+    }
+  },
     
     showUserProfile(userId) {
       this.selectedUserId = userId;
@@ -525,11 +670,25 @@ async loadStats() {
 	      this.$refs.categoriesList.updateCategoryStatus(category);
 	    }
 	  }
-	}
+	},
+  generateSlug(text) {
+    if (!text) return '';
+    return text
+      .toString()
+      .toLowerCase()
+      .normalize('NFD') // rozdziela znaki diakrytyczne
+      .replace(/[\u0300-\u036f]/g, '') // usuwa znaki diakrytyczne
+      .replace(/\s+/g, '-')
+      .replace(/[^\w\-]+/g, '')
+      .replace(/\-\-+/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '');
+  }
   },
   async mounted() {
     // Obsługa URL przy załadowaniu
     this.handleUrl();
+    this.setupNavigation();
   
     // Sprawdź zapisane preferencje przy załadowaniu
     const savedMode = localStorage.getItem('darkMode');
@@ -564,10 +723,12 @@ async loadStats() {
     }, 60000); // co 60 sekund
     
     // Załaduj dane
-    await this.loadCategories();
-    await this.loadActiveThreads();
-    await this.loadStats();
-    await this.loadSEOSettings();
+	  if (this.currentView === 'categories') {
+	    await this.loadCategories();
+	    await this.loadActiveThreads();
+	    await this.loadStats();
+	    await this.loadSEOSettings();
+	  }
   }
 }
 </script>

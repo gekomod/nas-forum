@@ -1,12 +1,12 @@
 <template>
   <div class="thread-page">
     <div class="breadcrumbs">
-      <a href="#" class="breadcrumb-link" @click.prevent="$emit('back-to-category')">
+      <a href="/" class="breadcrumb-link" @click.prevent="goHome">
         <Icon icon="mdi:home" />
         Forum
       </a>
       <span class="breadcrumb-separator">/</span>
-      <a href="#" class="breadcrumb-link" @click.prevent="$emit('back-to-category')">
+      <a href="#" class="breadcrumb-link" @click.prevent="goToCategory">
         {{ category.name }}
       </a>
       <span class="breadcrumb-separator">/</span>
@@ -337,10 +337,22 @@ export default {
       pmSubject: '',
       pmContent: '',
       pmSending: false,
-      pmPreview: false
+      pmPreview: false,
+      localCategory: null
     };
   },
   computed: {
+  breadcrumbLinks() {
+    return [
+      { name: 'Forum', path: '/' },
+      { 
+        name: this.category.name, 
+        path: `/category/${this.category.slug}`,
+        onClick: () => this.$emit('back-to-category')
+      },
+      { name: this.thread.title, path: `/thread/${this.thread.id}/${generateSlug(this.thread.title)}` }
+    ];
+  },
     // Sprawdza czy użytkownik jest moderatorem lub administratorem
     isModerator() {
       return this.user && (this.user.role_id === 1 || this.user.role_id === 2);
@@ -363,10 +375,56 @@ export default {
     }
   },
   mounted() {
+    if (!this.category || !this.category.id) {
+      this.loadCategory();
+    } else {
+      this.localCategory = this.category;
+    }
+  
     this.loadThread();
     this.checkWatchStatus();
   },
   methods: {
+    goHome() {
+      window.history.pushState({}, '', '/');
+      this.$emit('back-to-category');
+    },
+    goToCategory() {
+      const category = this.localCategory || this.category;
+      if (category && category.name) {
+        const slug = this.generateSlug(category.name);
+        window.history.pushState({}, '', `/category/${slug}`);
+        this.$emit('back-to-category');
+      } else {
+        this.goHome();
+      }
+    },
+    async loadCategory() {
+      try {
+        const categoryId = this.threadData.category_id;
+        if (categoryId) {
+          const response = await axios.get(`/category/id/${categoryId}`);
+          this.localCategory = response.data;
+        }
+      } catch (error) {
+        console.error('Error loading category:', error);
+        this.localCategory = {
+          id: this.threadData.category_id,
+          name: 'Unknown Category',
+          slug: 'unknown'
+        };
+      }
+    },
+    generateSlug(text) {
+      return text
+        .toString()
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^\w\-]+/g, '')
+        .replace(/\-\-+/g, '-')
+        .replace(/^-+/, '')
+        .replace(/-+$/, '');
+    },
     async loadThread() {
       try {
         const response = await axios.get(`/thread/${this.threadData.id}`, {

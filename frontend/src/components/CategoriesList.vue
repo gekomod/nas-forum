@@ -217,6 +217,8 @@ export default {
         this.$emit('select-category', category);
         this.$emit('refresh-categories');
       }
+      const newUrl = `/category/${category.slug}`;
+      window.history.pushState({}, '', newUrl);
     },
     
     getRoleType(roleId) {
