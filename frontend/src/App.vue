@@ -4,8 +4,15 @@
       <div class="shape shape-1"></div>
       <div class="shape shape-2"></div>
     </div>
+    
+        <AdminPanel 
+      v-if="currentView === 'admin-panel'" 
+      :is-admin="isAdmin"
+      :current-user-id="currentUser ? currentUser.id : null"
+      :current-user="currentUser"
+    />
 
-    <div class="forum-container">
+    <div v-if="currentView !== 'admin-panel'" class="forum-container">
       <ForumHeader 
         :dark-mode="darkMode" 
         :user="currentUser"
@@ -98,12 +105,7 @@
         />
 
         <!-- Użyj nowego komponentu AdminPanel -->
-    <AdminPanel 
-      v-if="currentView === 'admin-panel'" 
-      :is-admin="isAdmin"
-      :current-user-id="currentUser ? currentUser.id : null"
-      :current-user="currentUser"
-    />
+
         
           <PrivateMessages 
 	    v-if="currentView === 'private-messages'"
